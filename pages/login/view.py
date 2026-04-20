@@ -157,7 +157,7 @@ def login_view(page: ft.Page, navegar):
                         height=90,
                         fit="contain",
                     ),
-                    alignment=ft.alignment.center,
+                    alignment="center",
                 ),
 
                 # fallback textual (caso imagem falhe)
