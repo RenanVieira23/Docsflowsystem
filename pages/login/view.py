@@ -148,11 +148,10 @@ def login_view(page: ft.Page, navegar):
 
         content=ft.Column(
             [
-                ft.Text(
-                    "DocsFlow System",
-                    size=22,
-                    weight=ft.FontWeight.BOLD,
-                    color=ft.Colors.BLUE_800,
+                ft.Image(
+                    src="images/LogoDocsFlow.png",
+                    width=180,
+                    fit=ft.ImageFit.CONTAIN,
                 ),
 
                 ft.Text(
