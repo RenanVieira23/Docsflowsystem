@@ -151,7 +151,7 @@ def login_view(page: ft.Page, navegar):
                 ft.Image(
                     src="images/LogoDocsFlow.png",
                     width=180,
-                    fit="contain",  # ✅ corrigido
+                    fit="contain",  # ✅ compatível com Flet 0.80.3
                 ),
 
                 ft.Text(
@@ -171,17 +171,16 @@ def login_view(page: ft.Page, navegar):
                         btn_login,
                         loading,
                     ],
-                    alignment=ft.MainAxisAlignment.CENTER,
+                    alignment="center",  # ✅ compatível (evita MainAxisAlignment crash)
                     spacing=10,
                 ),
             ],
 
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            alignment=ft.MainAxisAlignment.CENTER,
+            horizontal_alignment="center",  # ✅ compatível (evita CrossAxisAlignment crash)
+            alignment="center",
             spacing=20,
         ),
     )
-
     # =========================
     # LAYOUT
     # =========================
