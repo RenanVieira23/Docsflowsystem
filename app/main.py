@@ -221,5 +221,5 @@ if __name__ == "__main__":
         target=main,
         port=port,
         upload_dir=upload_dir,
-        assets_dir="images"
+        assets_dir="images",
     )
