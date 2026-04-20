@@ -12,10 +12,10 @@ from database.models import (
     get_prazos_por_contrato,
     get_partes,
     get_tipos_partes,
-    get_usuarios,
     get_contrato_partes,
     add_contrato_parte,
     delete_contrato_parte,
+    get_usuarios,
 )
 
 from utils.calendario_ptbr import calendario_ptbr
@@ -222,8 +222,14 @@ def novo_contrato_dialog(page: ft.Page, atualizar_lista):
         max_lines=6,
     )
 
-    _nome_usuario = page.local_store.get("usuario_nome", "") if hasattr(page, "local_store") else ""
-    tf_resp = ft.TextField(label="Responsável", width=400, value=_nome_usuario)
+    _usuarios     = get_usuarios()
+    _resp_id_atual = str(page.local_store.get("usuario_id", "")) if hasattr(page, "local_store") else None
+    dd_resp = ft.Dropdown(
+        label="Responsável",
+        width=400,
+        options=[ft.dropdown.Option(str(u["id"]), u["usuario"]) for u in _usuarios],
+        value=_resp_id_atual if any(str(u["id"]) == _resp_id_atual for u in _usuarios) else None,
+    )
 
     tf_vig = ft.TextField(
         label="Vigência (meses)",
@@ -315,7 +321,7 @@ def novo_contrato_dialog(page: ft.Page, atualizar_lista):
                 "cliente_id": cli["id"],
                 "valor": tf_valor.value,
                 "clausulas": tf_clausulas.value,
-                "responsavel": next((u["usuario"] for u in _usuarios if str(u["id"]) == (dd_resp.value or "")), dd_resp.value or ""),
+                "responsavel": next((u["usuario"] for u in _usuarios if str(u["id"]) == (dd_resp.value or "")), ""),
                 "data_inicial": data_br_para_db(tf_data_ini.value),
                 "data_assinatura": data_br_para_db(tf_data_ass.value) if tf_data_ass.value else None,
                 "vigencia": int(tf_vig.value) if tf_vig.value else None,
@@ -415,20 +421,13 @@ def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
         width=400,
     )
 
-    _usuarios = get_usuarios()
-    _opcoes_resp = [
-        ft.dropdown.Option(str(u["id"]), u["usuario"])
-        for u in _usuarios
-    ]
-    # Tenta encontrar o usuário pelo nome salvo no contrato
+    _usuarios       = get_usuarios()
     _resp_nome_atual = contrato.get("responsavel") or ""
-    _resp_id_atual = next(
-        (str(u["id"]) for u in _usuarios if u["usuario"] == _resp_nome_atual), None
-    )
+    _resp_id_atual   = next((str(u["id"]) for u in _usuarios if u["usuario"] == _resp_nome_atual), None)
     dd_resp = ft.Dropdown(
         label="Responsável",
         width=400,
-        options=_opcoes_resp,
+        options=[ft.dropdown.Option(str(u["id"]), u["usuario"]) for u in _usuarios],
         value=_resp_id_atual,
     )
 
@@ -574,7 +573,7 @@ def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
                 contrato["id"],
                 {
                     "valor": tf_valor.value,
-                    "responsavel": next((u["usuario"] for u in _usuarios if str(u["id"]) == (dd_resp.value or "")), dd_resp.value or ""),
+                    "responsavel": next((u["usuario"] for u in _usuarios if str(u["id"]) == (dd_resp.value or "")), ""),
                     "data_assinatura": data_br_para_db(tf_data_ass.value) if tf_data_ass.value else None,
                     "vigencia": int(tf_vig.value) if tf_vig.value else None,
                     "termo_final": data_br_para_db(tf_fim.value),
@@ -681,108 +680,4 @@ def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
 
     page.overlay.append(dialog)
     dialog.open = True
-    page.update()
-
-
-# ======================================================
-# VER CONTRATO (somente leitura)
-# ======================================================
-
-def ver_contrato_dialog(page: ft.Page, contrato: dict, clientes_map: dict):
-
-    print(f"✅ ver_contrato_dialog chamado - contrato_id: {contrato.get('id')}")
-
-    # Mesmas chamadas do editar_contrato_dialog
-    prazos       = get_prazos_por_contrato(contrato["id"]) or []
-    cp_existentes = get_contrato_partes(contrato["id"]) or []
-    todas_partes  = get_partes() or []
-
-    print(f"📋 prazos: {prazos}")
-    print(f"👥 cp_existentes: {cp_existentes}")
-    print(f"👤 todas_partes: {todas_partes}")
-
-    partes_map   = {str(p["id"]): p for p in todas_partes}
-    nome_cliente = clientes_map.get(contrato.get("cliente_id"), "-")
-
-    # ---- PRAZOS ----
-    if prazos:
-        itens_prazos = [
-            ft.Container(
-                padding=ft.padding.symmetric(vertical=4, horizontal=8),
-                border_radius=8,
-                bgcolor=ft.Colors.GREY_50,
-                border=ft.border.all(1, ft.Colors.GREY_200),
-                content=ft.Row([
-                    ft.Icon(ft.Icons.CALENDAR_TODAY, size=14, color=ft.Colors.BLUE_400),
-                    ft.Text(data_db_para_br(p.get("data_vencimento")), weight=ft.FontWeight.W_500, size=13),
-                    ft.Text(f"— {p.get('observacao') or ''}", color=ft.Colors.GREY_600, size=13),
-                ], spacing=6),
-            )
-            for p in prazos
-        ]
-    else:
-        itens_prazos = [ft.Text("Nenhum prazo cadastrado.", color=ft.Colors.GREY_500, italic=True, size=13)]
-
-    # ---- PARTES ----
-    if cp_existentes:
-        itens_partes = [
-            ft.Container(
-                padding=ft.padding.symmetric(vertical=4, horizontal=8),
-                border_radius=8,
-                bgcolor=ft.Colors.GREY_50,
-                border=ft.border.all(1, ft.Colors.GREY_200),
-                content=ft.Row([
-                    ft.Icon(ft.Icons.PERSON_OUTLINE, size=14, color=ft.Colors.BLUE_400),
-                    ft.Text(
-                        partes_map.get(str(cp.get("parte_id")), {}).get("nome", f"ID {cp.get('parte_id')}"),
-                        weight=ft.FontWeight.W_500, size=13,
-                    ),
-                    ft.Text(f"— {cp.get('tipo_vinculo', '-')}", color=ft.Colors.GREY_600, size=13),
-                ], spacing=6),
-            )
-            for cp in cp_existentes
-        ]
-    else:
-        itens_partes = [ft.Text("Nenhuma parte vinculada.", color=ft.Colors.GREY_500, italic=True, size=13)]
-
-    # ---- DIALOG ----
-    dialog = ft.AlertDialog(
-        modal=True,
-        title=ft.Text(contrato.get("nome", ""), weight=ft.FontWeight.BOLD),
-        content=ft.Container(
-            height=500,
-            content=ft.Column(
-                [
-                    ft.Text(f"Cliente: {nome_cliente}", size=13),
-                    ft.Text(f"Responsável: {contrato.get('responsavel') or '-'}", size=13),
-                    ft.Text(f"Valor: {contrato.get('valor') or '-'}", size=13),
-                    ft.Text(f"Assinatura: {data_db_para_br(contrato.get('data_assinatura'))}", size=13),
-                    ft.Text(f"Início: {data_db_para_br(contrato.get('data_inicial'))}", size=13),
-                    ft.Text(f"Vigência: {contrato.get('vigencia') or '-'} meses", size=13),
-                    ft.Text(f"Fim: {data_db_para_br(contrato.get('termo_final'))}", size=13),
-
-                    ft.Divider(),
-                    ft.Text("Partes do Contrato:", weight=ft.FontWeight.BOLD, size=13),
-                    *itens_partes,
-
-                    ft.Divider(),
-                    ft.Text("Prazos:", weight=ft.FontWeight.BOLD, size=13),
-                    *itens_prazos,
-                ],
-                spacing=8,
-                scroll=ft.ScrollMode.AUTO,
-            ),
-        ),
-        actions=[
-            ft.TextButton("Fechar", on_click=lambda e: _fechar_ver(dialog, page)),
-        ],
-    )
-
-    page.overlay.append(dialog)
-    dialog.open = True
-    page.update()
-
-
-def _fechar_ver(dialog, page):
-    dialog.open = False
     page.update()

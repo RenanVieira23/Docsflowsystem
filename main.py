@@ -221,12 +221,13 @@ def main(page: ft.Page):
 # =========================
 if __name__ == "__main__":
 
-    PORTA_FIXA = 8550
+    import os
 
-    print(f"🚀 Servidor iniciado em http://localhost:{PORTA_FIXA}")
+    port = int(os.environ.get("PORT", 10000))
+
+    print(f"🚀 Servidor iniciado na porta {port}")
 
     ft.app(
         target=main,
-        view=ft.WEB_BROWSER,
-        port=int(os.environ.get("PORT", 10000)),
+        port=port
     )
