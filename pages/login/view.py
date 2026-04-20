@@ -168,7 +168,7 @@ def login_view(page: ft.Page, navegar):
                         weight=ft.FontWeight.BOLD,
                         color=ft.Colors.BLUE_800,
                     ),
-                    alignment=ft.alignment.center,
+                    alignment="center",
                 ),
 
                 ft.Text(
