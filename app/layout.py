@@ -99,9 +99,8 @@ class AppLayout(ft.Column):
     # =====================================================
 
     def _build_sidebar(self):
-
-        # botão admin criado antes
-        self.btn_admin = self._menu_btn(" Administração", "/admin")
+        
+        self.btn_admin = self._menu_btn("⚙️ Administração", "/admin")
 
         return ft.Container(
             width=220,
@@ -113,9 +112,9 @@ class AppLayout(ft.Column):
                         content=ft.Image(
                             src="images/LogoDocsFlow.png",
                             width=160,
-                            fit="contain",  # ✅ compatível 0.80.3
+                            fit="contain",
                         ),
-                        alignment="center",  # ✅ compatível (evita ft.alignment.center crash)
+                        alignment="center",
                         padding=ft.padding.only(bottom=10),
                     ),
 
@@ -129,10 +128,9 @@ class AppLayout(ft.Column):
                     self._menu_btn("Painel de Alertas", "/alertas"),
                     self._menu_btn("Relatórios", "/relatorios"),
 
-                    # botão admin controlado dinamicamente
                     self.btn_admin,
 
-                    ft.Spacer(),  # ✅ correto e estável
+                    ft.Container(expand=True),  # ✅ substitui Spacer
                 ],
                 spacing=6,
             ),
