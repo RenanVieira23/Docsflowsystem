@@ -108,17 +108,15 @@ class AppLayout(ft.Column):
             padding=20,
             content=ft.Column(
                 [
-                    ft.Image(
-                        src="images/LogoDocsFlow.png",
-                        width=160,
-                        fit=ft.ImageFit.CONTAIN,
-                    ),
-                    ft.Text(
-                        "System",
-                        size=12,
-                        color=ft.Colors.BLUE_100,
-                    ),
-
+                    ft.Container(
+                        content=ft.Image(
+                            src="images/LogoDocsFlow.png",
+                            width=160,
+                            fit=ft.ImageFit.CONTAIN,
+                        ),
+                        alignment=ft.alignment.center,
+                        padding=ft.padding.only(bottom=10),
+                    )
                     ft.Divider(color=ft.Colors.BLUE_300),
 
                     self._menu_btn("Dashboard", "/dashboard"),
@@ -144,9 +142,9 @@ class AppLayout(ft.Column):
     def _menu_btn(self, text, route):
         is_active = (self.app_page.route == route)
 
-        base_bg = "#0F2A44"     # sidebar
         active_bg = "#1B3E63"   # fundo mais claro para item ativo
-
+        bgcolor=active_bg if is_active else "transparent"
+        
         return ft.Container(
             border_radius=8,
             bgcolor=active_bg if is_active else base_bg,  # ✅ aqui é o destaque
