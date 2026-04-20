@@ -102,6 +102,7 @@ class AppLayout(ft.Column):
 
         # botão admin criado antes
         self.btn_admin = self._menu_btn("⚙️ Administração", "/admin")
+
         return ft.Container(
             width=220,
             bgcolor="#0F2A44",
@@ -112,11 +113,12 @@ class AppLayout(ft.Column):
                         content=ft.Image(
                             src="images/LogoDocsFlow.png",
                             width=160,
-                            fit=ft.ImageFit.CONTAIN,
+                            fit="contain",  # ✅ corrigido (evita erro de versão)
                         ),
                         alignment=ft.alignment.center,
                         padding=ft.padding.only(bottom=10),
                     ),
+
                     ft.Divider(color=ft.Colors.BLUE_300),
 
                     self._menu_btn("Dashboard", "/dashboard"),
@@ -130,7 +132,7 @@ class AppLayout(ft.Column):
                     # botão admin controlado dinamicamente
                     self.btn_admin,
 
-                        ft.Container(expand=True),
+                    ft.Spacer(),  # ✅ substitui Container(expand=True)
                 ],
                 spacing=6,
             ),

@@ -151,7 +151,7 @@ def login_view(page: ft.Page, navegar):
                 ft.Image(
                     src="images/LogoDocsFlow.png",
                     width=180,
-                    fit=ft.ImageFit.CONTAIN,
+                    fit="contain",  # ✅ corrigido
                 ),
 
                 ft.Text(
@@ -163,9 +163,7 @@ def login_view(page: ft.Page, navegar):
                 ft.Divider(),
 
                 usuario_input,
-
                 senha_input,
-
                 erro_texto,
 
                 ft.Row(
@@ -183,7 +181,6 @@ def login_view(page: ft.Page, navegar):
             spacing=20,
         ),
     )
-
 
     # =========================
     # LAYOUT
