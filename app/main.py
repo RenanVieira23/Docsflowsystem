@@ -213,7 +213,12 @@ if __name__ == "__main__":
 
     print(f"🚀 Servidor iniciado na porta {port}")
 
+    import os as _os
+    upload_dir = _os.environ.get("FLET_UPLOAD_DIR", "/tmp/flet_uploads")
+    _os.makedirs(upload_dir, exist_ok=True)
+
     ft.app(
         target=main,
-        port=port
+        port=port,
+        upload_dir=upload_dir,
     )
