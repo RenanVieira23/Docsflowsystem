@@ -147,11 +147,28 @@ def login_view(page: ft.Page, navegar):
 
         content=ft.Column(
             [
-                ft.Text(
-                    "DocsFlow System",
-                    size=22,
-                    weight=ft.FontWeight.BOLD,
-                    color=ft.Colors.BLUE_800,
+                # =========================
+                # LOGO (FLET 0.80 COMPATÍVEL)
+                # =========================
+                ft.Container(
+                    content=ft.Image(
+                        src="LogoDocsFlow.png",
+                        width=200,
+                        height=90,
+                        fit="contain",
+                    ),
+                    alignment=ft.alignment.center,
+                ),
+
+                # fallback textual (caso imagem falhe)
+                ft.Container(
+                    content=ft.Text(
+                        "DocsFlow System",
+                        size=20,
+                        weight=ft.FontWeight.BOLD,
+                        color=ft.Colors.BLUE_800,
+                    ),
+                    alignment=ft.alignment.center,
                 ),
 
                 ft.Text(
@@ -163,9 +180,7 @@ def login_view(page: ft.Page, navegar):
                 ft.Divider(),
 
                 usuario_input,
-
                 senha_input,
-
                 erro_texto,
 
                 ft.Row(
@@ -183,7 +198,6 @@ def login_view(page: ft.Page, navegar):
             spacing=20,
         ),
     )
-
 
     # =========================
     # LAYOUT
