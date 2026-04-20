@@ -17,8 +17,9 @@ def login_view(page: ft.Page, navegar):
     # =========================
 
     usuario_input = ft.TextField(
-        label="Usuário",
+        label="E-mail",
         width=300,
+        keyboard_type=ft.KeyboardType.EMAIL,
         border_radius=8,
         autofocus=True,
     )

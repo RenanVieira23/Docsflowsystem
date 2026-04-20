@@ -43,16 +43,6 @@ def _as_bool(v):
         return v.strip().lower() in ("true", "t", "1", "yes", "y", "sim")
     return False
 
-def _call(payload):
-    try:
-        r = requests.post(BASE, json=payload, headers=HEADERS, timeout=20)
-        data = r.json()
-        if r.status_code != 200 or not data.get("ok"):
-            return False, data.get("message")
-        return True, data.get("data")
-    except Exception as e:
-        return False, str(e)
-
 # ======================================================
 # TOKEN (para Edge Functions com Bearer)
 # ======================================================
@@ -628,14 +618,12 @@ def delete_tipo_parte(tipo_id: int):
 
 def get_contrato_partes(contrato_id: int):
     try:
-        print(f"🔍 Buscando contrato_partes para contrato_id={contrato_id} (tipo: {type(contrato_id)})")
         resp = (
             supabase.table("contrato_partes")
             .select("*")
             .eq("contrato_id", contrato_id)
             .execute()
         )
-        print(f"📦 Resultado contrato_partes: {resp.data}")
         return resp.data if resp.data else []
     except Exception as e:
         print(f"❌ Erro ao buscar partes do contrato: {e}")

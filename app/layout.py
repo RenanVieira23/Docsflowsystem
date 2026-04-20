@@ -205,18 +205,18 @@ class AppLayout(ft.Column):
             or self.app_page.local_store.get("is_global_admin", False)
         )
 
+        # Mostra/oculta botão admin conforme permissão
+        self.btn_admin.visible = bool(is_admin)
+
         # =========================
         # CONTROLE DE ACESSO REAL
         # =========================
-        rotas_admin = ["/admin"]
-
-        if route in rotas_admin and not is_admin:
-            self.page.snack_bar = ft.SnackBar(
+        if route == "/admin" and not is_admin:
+            self.app_page.snack_bar = ft.SnackBar(
                 ft.Text("Acesso permitido apenas para administradores.")
             )
-            self.page.snack_bar.open = True
-
-            route = "/dashboard"   # redireciona
+            self.app_page.snack_bar.open = True
+            route = "/dashboard"
 
         # =========================
         # CACHE DE VIEW (PERFORMANCE)
@@ -231,11 +231,6 @@ class AppLayout(ft.Column):
         # ATUALIZA CONTEÚDO CENTRAL
         # =========================
         self.content_area.content = view
-
-        # =========================
-        # ATUALIZA UI
-        # =========================
-        self.page.update()
 
         # Um único update
         self.app_page.update()
