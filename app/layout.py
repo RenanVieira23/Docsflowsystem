@@ -116,7 +116,7 @@ class AppLayout(ft.Column):
                         ),
                         alignment=ft.alignment.center,
                         padding=ft.padding.only(bottom=10),
-                    )
+                    ),
                     ft.Divider(color=ft.Colors.BLUE_300),
 
                     self._menu_btn("Dashboard", "/dashboard"),
