@@ -199,30 +199,6 @@ def login_view(page: ft.Page, navegar):
             spacing=20,
         ),
     )
-                ft.Divider(),
-
-                usuario_input,
-
-                senha_input,
-
-                erro_texto,
-
-                ft.Row(
-                    [
-                        btn_login,
-                        loading,
-                    ],
-                    alignment=ft.MainAxisAlignment.CENTER,
-                    spacing=10,
-                ),
-            ],
-
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            alignment=ft.MainAxisAlignment.CENTER,
-            spacing=20,
-        ),
-    )
-
 
     # =========================
     # LAYOUT
