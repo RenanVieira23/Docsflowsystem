@@ -211,8 +211,8 @@ if __name__ == "__main__":
 
     print(f"🚀 Servidor iniciado em http://localhost:{PORTA_FIXA}")
 
-    ft.run(
-        main,
-        view=ft.AppView.WEB_BROWSER,
-        port=PORTA_FIXA,
+    ft.app(
+        target=main,
+        view=ft.WEB_BROWSER,
+        port=int(os.environ.get("PORT", 10000)),
     )
