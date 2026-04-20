@@ -100,22 +100,24 @@ class AppLayout(ft.Column):
 
     def _build_sidebar(self):
 
+        # botão admin criado antes
         self.btn_admin = self._menu_btn("⚙️ Administração", "/admin")
-
         return ft.Container(
             width=220,
             bgcolor="#0F2A44",
             padding=20,
             content=ft.Column(
-                controls=[  # ✅ importante no Flet 0.80.x
-                    ft.Container(
-                        content=ft.Image(
-                            src="images/LogoDocsFlow.png",
-                            width=160,
-                            fit="contain",
-                        ),
-                        alignment="center",
-                        padding=ft.padding.only(bottom=10),
+                [
+                    ft.Text(
+                        "DocsFlow System",
+                        size=22,
+                        weight=ft.FontWeight.BOLD,
+                        color=ft.Colors.WHITE,
+                    ),
+                    ft.Text(
+                        "Gestão Jurídica",
+                        size=12,
+                        color=ft.Colors.BLUE_100,
                     ),
 
                     ft.Divider(color=ft.Colors.BLUE_300),
@@ -128,14 +130,14 @@ class AppLayout(ft.Column):
                     self._menu_btn("Painel de Alertas", "/alertas"),
                     self._menu_btn("Relatórios", "/relatorios"),
 
+                    # botão admin controlado dinamicamente
                     self.btn_admin,
 
-                    ft.Container(expand=True),
+                        ft.Container(expand=True),
                 ],
                 spacing=6,
             ),
         )
-        
     # =====================================================
     # BOTÃO MENU (com fundo mais claro no item ativo)
     # =====================================================
