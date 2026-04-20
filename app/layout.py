@@ -100,50 +100,6 @@ class AppLayout(ft.Column):
 
     def _build_sidebar(self):
 
-        # botão admin criado antes
-        self.btn_admin = self._menu_btn("⚙️ Administração", "/admin")
-        return ft.Container(
-            width=220,
-            bgcolor="#0F2A44",
-            padding=20,
-            content=ft.Column(
-                [
-                    ft.Text(
-                        "DocsFlow System",
-                        size=22,
-                        weight=ft.FontWeight.BOLD,
-                        color=ft.Colors.WHITE,
-                    ),
-                    ft.Text(
-                        "Gestão Jurídica",
-                        size=12,
-                        color=ft.Colors.BLUE_100,
-                    ),
-
-                    ft.Divider(color=ft.Colors.BLUE_300),
-
-                    self._menu_btn("Dashboard", "/dashboard"),
-                    self._menu_btn("Clientes", "/clientes"),
-                    self._menu_btn("Tipos de Partes", "/tipos-partes"),
-                    self._menu_btn("Partes", "/partes"),
-                    self._menu_btn("Contratos", "/contratos"),
-                    self._menu_btn("Painel de Alertas", "/alertas"),
-                    self._menu_btn("Relatórios", "/relatorios"),
-
-                    # botão admin controlado dinamicamente
-                    self.btn_admin,
-
-                        ft.Container(expand=True),
-                ],
-                spacing=6,
-            ),
-        )
-    # =====================================================
-    # BOTÃO MENU (com fundo mais claro no item ativo)
-    # =====================================================
-
-    def _build_sidebar(self):
-
         self.btn_admin = self._menu_btn("⚙️ Administração", "/admin")
 
         return ft.Container(
@@ -180,20 +136,23 @@ class AppLayout(ft.Column):
             ),
         )
         
-        
-        # =========================
-    # MENU BUTTON
-    # =========================
-    def _menu_btn(self, text, route):
-        is_active = (self.page.route == route)
+    # =====================================================
+    # BOTÃO MENU (com fundo mais claro no item ativo)
+    # =====================================================
 
-        base_bg = "#0F2A44"
-        active_bg = "#1B3E63"
+    def _menu_btn(self, text, route):
+        is_active = (self.app_page.route == route)
+
+        base_bg = "#0F2A44"     # sidebar
+        active_bg = "#1B3E63"   # fundo mais claro para item ativo
 
         return ft.Container(
             border_radius=8,
-            bgcolor=active_bg if is_active else base_bg,
-            padding=ft.padding.symmetric(vertical=10, horizontal=12),
+            bgcolor=active_bg if is_active else base_bg,  # ✅ aqui é o destaque
+            padding=ft.padding.symmetric(
+                vertical=10,
+                horizontal=12,
+            ),
             content=ft.Text(
                 text,
                 color=ft.Colors.WHITE,
@@ -203,6 +162,7 @@ class AppLayout(ft.Column):
             ink=True,
             on_click=lambda e, r=route: self._go_route(r),
         )
+
     # =====================================================
     # NAVEGAÇÃO RÁPIDA
     # =====================================================
