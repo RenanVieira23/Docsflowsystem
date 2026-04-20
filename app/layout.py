@@ -179,6 +179,30 @@ class AppLayout(ft.Column):
                 spacing=6,
             ),
         )
+        
+        
+        # =========================
+    # MENU BUTTON
+    # =========================
+    def _menu_btn(self, text, route):
+        is_active = (self.page.route == route)
+
+        base_bg = "#0F2A44"
+        active_bg = "#1B3E63"
+
+        return ft.Container(
+            border_radius=8,
+            bgcolor=active_bg if is_active else base_bg,
+            padding=ft.padding.symmetric(vertical=10, horizontal=12),
+            content=ft.Text(
+                text,
+                color=ft.Colors.WHITE,
+                size=14,
+                weight=ft.FontWeight.W_600 if is_active else ft.FontWeight.W_500,
+            ),
+            ink=True,
+            on_click=lambda e, r=route: self._go_route(r),
+        )
     # =====================================================
     # NAVEGAÇÃO RÁPIDA
     # =====================================================
