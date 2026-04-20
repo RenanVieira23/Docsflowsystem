@@ -152,7 +152,7 @@ def login_view(page: ft.Page, navegar):
                 # =========================
                 ft.Container(
                     content=ft.Image(
-                        src="LogoDocsFlow.png",
+                        src="/LogoDocsFlow.png",
                         width=200,
                         height=90,
                         fit="contain",
