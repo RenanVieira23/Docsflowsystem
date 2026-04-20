@@ -108,11 +108,10 @@ class AppLayout(ft.Column):
             padding=20,
             content=ft.Column(
                 [
-                    ft.Text(
-                        "DocsFlow",
-                        size=22,
-                        weight=ft.FontWeight.BOLD,
-                        color=ft.Colors.WHITE,
+                    ft.Image(
+                        src="images/LogoDocsFlow.png",
+                        width=160,
+                        fit=ft.ImageFit.CONTAIN,
                     ),
                     ft.Text(
                         "System",
