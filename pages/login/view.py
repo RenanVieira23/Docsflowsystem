@@ -148,14 +148,8 @@ def login_view(page: ft.Page, navegar):
         content=ft.Column(
             [
                 ft.Container(
-                    content=ft.Image(
-                        src="images/LogoDocsFlow.jpg",
-                        width=220,
-                        fit="contain",
-                    ),
-                    alignment="center",
+                    content=ft.Text("LOGO AQUI")
                 ),
-
                 ft.Text(
                     "Acesse com suas credenciais",
                     size=14,
