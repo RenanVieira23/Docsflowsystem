@@ -109,13 +109,13 @@ class AppLayout(ft.Column):
             content=ft.Column(
                 [
                     ft.Text(
-                        "DocsFlow System",
+                        "DocsFlow",
                         size=22,
                         weight=ft.FontWeight.BOLD,
                         color=ft.Colors.WHITE,
                     ),
                     ft.Text(
-                        "Gestão Jurídica",
+                        "System",
                         size=12,
                         color=ft.Colors.BLUE_100,
                     ),
