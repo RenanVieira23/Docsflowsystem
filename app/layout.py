@@ -138,16 +138,14 @@ class AppLayout(ft.Column):
     # =====================================================
     # BOTÃO MENU (com fundo mais claro no item ativo)
     # =====================================================
-
     def _menu_btn(self, text, route):
         is_active = (self.app_page.route == route)
 
-        active_bg = "#1B3E63"   # fundo mais claro para item ativo
-        bgcolor=active_bg if is_active else "transparent"
-        
+        active_bg = "#1B3E63"
+
         return ft.Container(
             border_radius=8,
-            bgcolor=active_bg if is_active else base_bg,  # ✅ aqui é o destaque
+            bgcolor=active_bg if is_active else None,
             padding=ft.padding.symmetric(
                 vertical=10,
                 horizontal=12,
@@ -156,12 +154,11 @@ class AppLayout(ft.Column):
                 text,
                 color=ft.Colors.WHITE,
                 size=14,
-                weight=ft.FontWeight.W_600 if is_active else ft.FontWeight.W_500,
+                weight=ft.FontWeight.W_600 if is_active else ft.FontWeight.W_400,
             ),
             ink=True,
             on_click=lambda e, r=route: self._go_route(r),
         )
-
     # =====================================================
     # NAVEGAÇÃO RÁPIDA
     # =====================================================
