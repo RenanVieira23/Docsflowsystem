@@ -17,9 +17,8 @@ def login_view(page: ft.Page, navegar):
     # =========================
 
     usuario_input = ft.TextField(
-        label="E-mail",
+        label="Usuário",
         width=300,
-        keyboard_type=ft.KeyboardType.EMAIL,
         border_radius=8,
         autofocus=True,
     )
@@ -148,10 +147,11 @@ def login_view(page: ft.Page, navegar):
 
         content=ft.Column(
             [
-                ft.Image(
-                    src="images/LogoDocsFlow.png",
-                    width=180,
-                    fit="contain",  # ✅ compatível com Flet 0.80.3
+                ft.Text(
+                    "DocsFlow System",
+                    size=22,
+                    weight=ft.FontWeight.BOLD,
+                    color=ft.Colors.BLUE_800,
                 ),
 
                 ft.Text(
@@ -163,7 +163,9 @@ def login_view(page: ft.Page, navegar):
                 ft.Divider(),
 
                 usuario_input,
+
                 senha_input,
+
                 erro_texto,
 
                 ft.Row(
@@ -171,16 +173,18 @@ def login_view(page: ft.Page, navegar):
                         btn_login,
                         loading,
                     ],
-                    alignment="center",  # ✅ compatível (evita MainAxisAlignment crash)
+                    alignment=ft.MainAxisAlignment.CENTER,
                     spacing=10,
                 ),
             ],
 
-            horizontal_alignment="center",  # ✅ compatível (evita CrossAxisAlignment crash)
-            alignment="center",
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            alignment=ft.MainAxisAlignment.CENTER,
             spacing=20,
         ),
     )
+
+
     # =========================
     # LAYOUT
     # =========================
