@@ -179,28 +179,42 @@ def main(page: ft.Page):
     # =========================
     def on_route_change(e):
 
+    # ======================
+    # TITULO DINÂMICO DA ABA
+    # ======================
+        titulos = {
+            "/login": "Login | DocsFlow System",
+            "/dashboard": "Dashboard | DocsFlow System",
+            "/clientes": "Clientes | DocsFlow System",
+            "/contratos": "Contratos | DocsFlow System",
+            "/relatorios": "Relatórios | DocsFlow System",
+            "/alertas": "Alertas | DocsFlow System",
+            "/painel": "Painel | DocsFlow System",
+            "/partes": "Partes | DocsFlow System",
+            "/tipos-partes": "Tipos de Partes | DocsFlow System",
+            "/admin": "Administração | DocsFlow System",
+        }
+
+        page.title = titulos.get(page.route, "DocsFlow System")
+
+        # ======================
         # LOGIN → sem layout
+        # ======================
         if page.route == "/login":
             page.controls.clear()
             page.add(get_view("/login"))
             page.update()
             return
 
-        # OUTRAS TELAS → layout único
-        if layout not in page.controls:
-            page.controls.clear()
-            page.add(layout)
+    # ======================
+    # OUTRAS TELAS → layout único
+    # ======================
+    if layout not in page.controls:
+        page.controls.clear()
+        page.add(layout)
 
-        layout.navigate(page.route)
-        page.update()
-
-    page.on_route_change = on_route_change
-
-    # =========================
-    # START
-    # =========================
-    page.go("/login")
-
+    layout.navigate(page.route)
+    page.update()
 
 # =========================
 # EXECUÇÃO
