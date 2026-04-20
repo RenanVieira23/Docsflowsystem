@@ -151,14 +151,14 @@ def login_view(page: ft.Page, navegar):
                 # LOGO (SEGURO + FALLBACK)
                 # =========================
                 ft.Container(
-                    content=ft.Container(
-                        image_src="LogoDocsFlow.png",
-                        image_fit="contain",
+                    content=ft.Image(
+                        src="LogoDocsFlow.png",
                         width=200,
                         height=90,
-                    ),
-                    alignment=ft.alignment.center,
-                ),
+                        fit="contain",
+    ),
+    alignment=ft.alignment.center,
+)
 
                 # fallback visual (caso imagem não carregue)
                 ft.Container(
