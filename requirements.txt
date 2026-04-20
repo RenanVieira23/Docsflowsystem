@@ -2,3 +2,4 @@ flet
 supabase
 python-dotenv
 Unidecode
+pandas
