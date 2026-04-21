@@ -8,26 +8,45 @@ class AppLayout(ft.Column):
         self.app_page = page
         self.get_view = get_view
 
-        # Cache de views (MUITO importante p/ performance)
+        # Cache de views (performance)
         self.views_cache = {}
 
-        # label do usuário
+        # =========================
+        # USER LABEL
+        # =========================
         self.lbl_user = ft.Text("Usuário", size=14)
 
+        # =========================
+        # TENANT LABEL (DINÂMICO)
+        # =========================
+        self.tenant_text = ft.Text(
+            "DocsFlow",
+            size=12,
+            color=ft.Colors.BLUE_100,
+        )
+
+        # =========================
         # HEADER
+        # =========================
         self.header = self._build_header()
 
+        # =========================
         # CONTEÚDO CENTRAL
+        # =========================
         self.content_area = ft.Container(
             expand=True,
             padding=24,
             bgcolor=ft.Colors.GREY_50,
         )
 
+        # =========================
         # SIDEBAR
+        # =========================
         self.sidebar = self._build_sidebar()
 
+        # =========================
         # LAYOUT PRINCIPAL
+        # =========================
         self.controls = [
             ft.Row(
                 [
@@ -64,9 +83,7 @@ class AppLayout(ft.Column):
                 spacing=6,
             ),
             items=[
-                ft.PopupMenuItem(
-                    content=ft.Text("Perfil"),
-                ),
+                ft.PopupMenuItem(content=ft.Text("Perfil")),
                 ft.PopupMenuItem(
                     content=ft.Text("Sair"),
                     on_click=self._logout,
@@ -100,8 +117,8 @@ class AppLayout(ft.Column):
 
     def _build_sidebar(self):
 
-        # botão admin criado antes
         self.btn_admin = self._menu_btn("⚙️ Administração", "/admin")
+
         return ft.Container(
             width=220,
             bgcolor="#0F2A44",
@@ -109,7 +126,7 @@ class AppLayout(ft.Column):
             content=ft.Column(
                 [
                     ft.Image(
-                        src="images/DocsFlowLogo.png",
+                        src="https://mefkcglvxqememduyweh.supabase.co/storage/v1/object/sign/Heringer/LogoDocsFlow2-removebg-preview.png?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV9jNjM3NDNjNi00NWY4LTRhYWUtODQ0NS05M2EzYmViNjg4OGYiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJIZXJpbmdlci9Mb2dvRG9jc0Zsb3cyLXJlbW92ZWJnLXByZXZpZXcucG5nIiwiaWF0IjoxNzc2ODAxMTI1LCJleHAiOjMzNTM2MDExMjV9.jqxPmg6Nmp6XfSppw6NUzjhnyINV0dw-x_Gv3ejjftg",
                         width=160,
                         height=44,
                         error_content=ft.Text(
@@ -119,11 +136,11 @@ class AppLayout(ft.Column):
                             color=ft.Colors.WHITE,
                         ),
                     ),
-                    ft.Text(
-                        "Gestão Jurídica",
-                        size=12,
-                        color=ft.Colors.BLUE_100,
-                    ),
+
+                    # =========================
+                    # TENANT DINÂMICO
+                    # =========================
+                    self.tenant_text,
 
                     ft.Divider(color=ft.Colors.BLUE_300),
 
@@ -136,31 +153,25 @@ class AppLayout(ft.Column):
                     self._menu_btn("Cadastro de Prazos", "/alertas-cadastro"),
                     self._menu_btn("Relatórios", "/relatorios"),
 
-                    # botão admin controlado dinamicamente
                     self.btn_admin,
 
-                        ft.Container(expand=True),
+                    ft.Container(expand=True),
                 ],
                 spacing=6,
             ),
         )
+
     # =====================================================
-    # BOTÃO MENU (com fundo mais claro no item ativo)
+    # BOTÃO MENU
     # =====================================================
 
     def _menu_btn(self, text, route):
         is_active = (self.app_page.route == route)
 
-        base_bg = "#0F2A44"     # sidebar
-        active_bg = "#1B3E63"   # fundo mais claro para item ativo
-
         return ft.Container(
             border_radius=8,
-            bgcolor=active_bg if is_active else base_bg,  # ✅ aqui é o destaque
-            padding=ft.padding.symmetric(
-                vertical=10,
-                horizontal=12,
-            ),
+            bgcolor="#1B3E63" if is_active else "#0F2A44",
+            padding=ft.padding.symmetric(vertical=10, horizontal=12),
             content=ft.Text(
                 text,
                 color=ft.Colors.WHITE,
@@ -172,14 +183,12 @@ class AppLayout(ft.Column):
         )
 
     # =====================================================
-    # NAVEGAÇÃO RÁPIDA
+    # NAVEGAÇÃO
     # =====================================================
 
     def _go_route(self, route):
-        # Evita navegação duplicada
         if self.app_page.route == route:
             return
-
         self.app_page.go(route)
 
     # =====================================================
@@ -188,11 +197,20 @@ class AppLayout(ft.Column):
 
     def _logout(self, e):
         self.app_page.local_store.clear()
-
-        # Limpa cache ao sair
         self.views_cache.clear()
-
         self.app_page.go("/login")
+
+    # =====================================================
+    # ATUALIZAÇÕES DINÂMICAS (ESSENCIAL)
+    # =====================================================
+
+    def set_user(self, name: str):
+        self.lbl_user.value = name
+        self.app_page.update()
+
+    def set_tenant(self, tenant_name: str):
+        self.tenant_text.value = tenant_name
+        self.app_page.update()
 
     # =====================================================
     # NAVEGAÇÃO PRINCIPAL
@@ -200,48 +218,25 @@ class AppLayout(ft.Column):
 
     def navigate(self, route):
 
-        # =========================
-        # DADOS DO USUÁRIO
-        # =========================
-        nome = self.app_page.local_store.get("usuario_nome", "Usuário")
-        self.lbl_user.value = nome
+        self.lbl_user.value = self.app_page.local_store.get("usuario_nome", "Usuário")
 
         is_admin = (
             self.app_page.local_store.get("is_admin", False)
             or self.app_page.local_store.get("is_global_admin", False)
         )
 
-        # =========================
-        # CONTROLE DE ACESSO REAL
-        # =========================
-        rotas_admin = ["/admin"]
-
-        if route in rotas_admin and not is_admin:
-            self.page.snack_bar = ft.SnackBar(
+        if route == "/admin" and not is_admin:
+            self.app_page.snack_bar = ft.SnackBar(
                 ft.Text("Acesso permitido apenas para administradores.")
             )
-            self.page.snack_bar.open = True
+            self.app_page.snack_bar.open = True
+            route = "/dashboard"
 
-            route = "/dashboard"   # redireciona
-
-        # =========================
-        # CACHE DE VIEW (PERFORMANCE)
-        # =========================
         if route in self.views_cache:
             view = self.views_cache[route]
         else:
             view = self.get_view(route)
-        self.views_cache[route] = view
+            self.views_cache[route] = view
 
-        # =========================
-        # ATUALIZA CONTEÚDO CENTRAL
-        # =========================
         self.content_area.content = view
-
-        # =========================
-        # ATUALIZA UI
-        # =========================
-        self.page.update()
-
-        # Um único update
         self.app_page.update()

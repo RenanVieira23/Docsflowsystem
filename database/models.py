@@ -148,24 +148,57 @@ def autenticar_usuario(email: str, senha: str):
         token = res.session.access_token
         _apply_access_token(token)
 
-        prof = supabase.table("usuarios").select("*").eq("auth_uid", auth_uid).maybe_single().execute()
+        prof = (
+            supabase.table("usuarios")
+            .select("*")
+            .eq("auth_uid", auth_uid)
+            .maybe_single()
+            .execute()
+        )
+
         perfil = prof.data if prof else None
+
         if not perfil:
             return {"_error": "PERFIL_NAO_ENCONTRADO"}
 
+        # =========================
+        # GARANTE TENANT_ID PRIMEIRO
+        # =========================
+        tenant_id = perfil.get("tenant_id")
+
+        tenant_nome = "Tenant"
+
+        if tenant_id:
+            tenant = get_tenant_por_id(tenant_id)
+            if tenant:
+                tenant_nome = tenant.get("nome")
+
+        # =========================
+        # ADMIN FLAGS
+        # =========================
         perfil = _merge_admin_flags(perfil, res.user)
+
+        # =========================
+        # SESSION
+        # =========================
         perfil["_session"] = {
             "access_token": token,
             "refresh_token": res.session.refresh_token,
             "expires_at": res.session.expires_at,
             "auth_uid": auth_uid,
         }
+
+        # =========================
+        # FIX FINAL GARANTIDO
+        # =========================
+        perfil["tenant_nome"] = tenant_nome
+
         return perfil
 
     except Exception as e:
         print(f"❌ Erro ao autenticar/buscar perfil: {e}")
         return None
-
+    
 def get_perfil_por_auth_uid(auth_uid: str):
     try:
         resp = supabase.table("usuarios").select("*").eq("auth_uid", str(auth_uid)).maybe_single().execute()
@@ -174,7 +207,22 @@ def get_perfil_por_auth_uid(auth_uid: str):
         print(f"❌ Erro ao buscar perfil por auth_uid: {e}")
         return None
 
+def get_tenant_por_id(tenant_id):
+    try:
+        resp = (
+            supabase
+            .table("tenants")
+            .select("id, nome")
+            .eq("id", tenant_id)
+            .maybe_single()
+            .execute()
+        )
 
+        return resp.data if resp else None
+
+    except Exception as e:
+        print(f"❌ Erro ao buscar tenant: {e}")
+        return None
 # ======================================================
 # CLIENTES
 # ======================================================

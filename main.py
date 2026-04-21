@@ -173,6 +173,7 @@ def main(page: ft.Page):
     # LAYOUT PRINCIPAL
     # =========================
     layout = AppLayout(page, get_view)
+    page.layout_instance = layout
 
     # =========================
     # EVENTO DE ROTA
