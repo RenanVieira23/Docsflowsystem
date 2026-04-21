@@ -9,7 +9,15 @@ from pages.partes.view import partes_view
 from pages.tipos.view import tipos_view
 from pages.alertas_cadastro.view import alertas_cadastro_view
 from app.layout import AppLayout
+from pathlib import Path
 
+
+# DEFINIR DIRETÓRIOS (AQUI 👇)
+# =====================================
+
+BASE_DIR = Path(__file__).parent
+ASSETS_DIR = BASE_DIR / "assets"
+UPLOAD_DIR = BASE_DIR / "uploads"
 
 # =========================
 # HELPERS
@@ -225,10 +233,14 @@ if __name__ == "__main__":
     _upload_dir = _os.environ.get("FLET_UPLOAD_DIR", "/tmp/flet_uploads")
     _os.makedirs(_upload_dir, exist_ok=True)
 
+
+print("ASSETS:", ASSETS_DIR)
+print("EXISTE?", ASSETS_DIR.exists())
+
     ft.run(
         target=main,
         port=port,
-        assets_dir="assets",
-        upload_dir=_upload_dir,
+        assets_dir=str(ASSETS_DIR),
+        upload_dir=str(UPLOAD_DIR),
         view=ft.AppView.WEB_BROWSER,
-    )
+)
