@@ -108,11 +108,17 @@ class AppLayout(ft.Column):
             padding=20,
             content=ft.Column(
                 [
-                    ft.Text(
-                        "DocsFlow System",
-                        size=22,
-                        weight=ft.FontWeight.BOLD,
-                        color=ft.Colors.WHITE,
+                    ft.Image(
+                        src="images/DocsFlowLogo.png",
+                        width=160,
+                        height=44,
+                        fit=ft.ImageFit.CONTAIN,
+                        error_content=ft.Text(
+                            "DocsFlow",
+                            size=20,
+                            weight=ft.FontWeight.BOLD,
+                            color=ft.Colors.WHITE,
+                        ),
                     ),
                     ft.Text(
                         "Gestão Jurídica",
@@ -124,10 +130,11 @@ class AppLayout(ft.Column):
 
                     self._menu_btn("Dashboard", "/dashboard"),
                     self._menu_btn("Clientes", "/clientes"),
-                    self._menu_btn("Tipos de Partes", "/tipos-partes"),
+                    self._menu_btn("Tipos", "/tipos"),
                     self._menu_btn("Partes", "/partes"),
                     self._menu_btn("Contratos", "/contratos"),
                     self._menu_btn("Painel de Alertas", "/alertas"),
+                    self._menu_btn("Cadastro de Prazos", "/alertas-cadastro"),
                     self._menu_btn("Relatórios", "/relatorios"),
 
                     # botão admin controlado dinamicamente

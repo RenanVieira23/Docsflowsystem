@@ -6,7 +6,8 @@ from pages import dashboard, clientes, contratos, relatorios, painel
 from pages.admin.view import admin_view  # ✅ AQUI
 from database.models import registrar_log
 from pages.partes.view import partes_view
-from pages.tipos_partes.view import tipos_partes_view
+from pages.tipos.view import tipos_view
+from pages.alertas_cadastro.view import alertas_cadastro_view
 from app.layout import AppLayout
 
 
@@ -132,10 +133,16 @@ def main(page: ft.Page):
                 views_cache[route] = partes_view(page)
             return views_cache[route]
 
-        # ================= TIPOS DE PARTES =================
-        if route == "/tipos-partes":
+        # ================= TIPOS =================
+        if route == "/tipos":
             if route not in views_cache:
-                views_cache[route] = tipos_partes_view(page)
+                views_cache[route] = tipos_view(page)
+            return views_cache[route]
+
+        # ================= CADASTRO DE PRAZOS =================
+        if route == "/alertas-cadastro":
+            if route not in views_cache:
+                views_cache[route] = alertas_cadastro_view(page)
             return views_cache[route]
 
         # ================= ADMIN =================
@@ -214,12 +221,13 @@ if __name__ == "__main__":
     print(f"🚀 Servidor iniciado na porta {port}")
 
     import os as _os
-    upload_dir = _os.environ.get("FLET_UPLOAD_DIR", "/tmp/flet_uploads")
-    _os.makedirs(upload_dir, exist_ok=True)
+    _root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+    _upload_dir = _os.environ.get("FLET_UPLOAD_DIR", "/tmp/flet_uploads")
+    _os.makedirs(_upload_dir, exist_ok=True)
 
     ft.app(
         target=main,
         port=port,
-        upload_dir=upload_dir,
-        assets_dir="images"
+        assets_dir=_root,
+        upload_dir=_upload_dir,
     )
