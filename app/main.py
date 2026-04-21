@@ -234,8 +234,10 @@ if __name__ == "__main__":
     _os.makedirs(_upload_dir, exist_ok=True)
 
 
-print("ASSETS:", ASSETS_DIR)
-print("EXISTE?", ASSETS_DIR.exists())
+
+    print("BASE:", BASE_DIR)
+    print("ASSETS:", ASSETS_DIR)
+    print("EXISTE:", ASSETS_DIR.exists())
 
     ft.run(
         target=main,
