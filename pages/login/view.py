@@ -147,13 +147,17 @@ def login_view(page: ft.Page, navegar):
 
         content=ft.Column(
             [
-                ft.Text(
-                    "DocsFlow System",
-                    size=22,
-                    weight=ft.FontWeight.BOLD,
-                    color=ft.Colors.BLUE_800,
+                ft.Image(
+                    src="images/DocsFlowLogo.png",
+                    width=160,
+                    height=44,
+                    error_content=ft.Text(
+                        "DocsFlow",
+                        size=20,
+                        weight=ft.FontWeight.BOLD,
+                        color=ft.Colors.WHITE,
+                    ),
                 ),
-
                 ft.Text(
                     "Acesse com suas credenciais",
                     size=14,

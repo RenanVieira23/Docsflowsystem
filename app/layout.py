@@ -112,7 +112,6 @@ class AppLayout(ft.Column):
                         src="images/DocsFlowLogo.png",
                         width=160,
                         height=44,
-                        fit=ft.ImageFit.CONTAIN,
                         error_content=ft.Text(
                             "DocsFlow",
                             size=20,
