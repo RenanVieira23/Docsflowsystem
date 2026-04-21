@@ -109,7 +109,7 @@ class AppLayout(ft.Column):
             content=ft.Column(
                 [
                     ft.Image(
-                        src="images/DocsFlowLogo.png",
+                        src="images/DocsFlowLogo.jpg",
                         width=160,
                         height=44,
                         error_content=ft.Text(

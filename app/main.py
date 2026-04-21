@@ -228,7 +228,7 @@ if __name__ == "__main__":
     ft.run(
         target=main,
         port=port,
-        assets_dir=_root,
+        assets_dir="assets",
         upload_dir=_upload_dir,
         view=ft.AppView.WEB_BROWSER,
     )

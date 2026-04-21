@@ -148,7 +148,7 @@ def login_view(page: ft.Page, navegar):
         content=ft.Column(
             [
                 ft.Image(
-                    src="images/DocsFlowLogo.jpeg",
+                    src="images/DocsFlowLogo.jpg",
                     width=160,
                     height=44,
                     error_content=ft.Text(
