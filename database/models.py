@@ -43,6 +43,16 @@ def _as_bool(v):
         return v.strip().lower() in ("true", "t", "1", "yes", "y", "sim")
     return False
 
+def _call(payload):
+    try:
+        r = requests.post(BASE, json=payload, headers=HEADERS, timeout=20)
+        data = r.json()
+        if r.status_code != 200 or not data.get("ok"):
+            return False, data.get("message")
+        return True, data.get("data")
+    except Exception as e:
+        return False, str(e)
+
 # ======================================================
 # TOKEN (para Edge Functions com Bearer)
 # ======================================================
@@ -659,10 +669,11 @@ from database.supabase_client import supabase_admin
 
 
 def get_usuarios_do_tenant(tenant_id: str) -> list:
-    """Lista todos os usuários do tenant."""
+    """Lista todos os usuários do tenant — usa supabase_admin para bypassar RLS."""
     try:
+        client = supabase_admin if supabase_admin else supabase
         resp = (
-            supabase.table("usuarios")
+            client.table("usuarios")
             .select("*")
             .eq("tenant_id", tenant_id)
             .order("usuario")
@@ -800,68 +811,148 @@ def delete_usuario_admin(usuario_id: int) -> bool:
     except Exception as e:
         print(f"❌ Erro ao deletar usuário: {e}")
         return False
+
 # ======================================================
-# 📎 STORAGE — ANEXOS
+# 🔗 VÍNCULOS (tipos de partes)
 # ======================================================
-# Nome do bucket no Supabase Storage.
-# Ajuste se o seu bucket tiver outro nome.
-STORAGE_BUCKET = "Heringer"
+
+def get_vinculos(tenant_id: str = None) -> list:
+    try:
+        q = supabase.table("vinculos").select("*")
+        if tenant_id:
+            q = q.eq("tenant_id", tenant_id)
+        resp = q.order("tipo").execute()
+        return resp.data if resp.data else []
+    except Exception as e:
+        print(f"❌ Erro ao buscar vínculos: {e}")
+        return []
+
+
+def add_vinculo(tipo: str, tenant_id: str) -> dict:
+    try:
+        resp = supabase.table("vinculos").insert({"tipo": tipo.strip(), "tenant_id": tenant_id}).execute()
+        return resp.data[0] if resp.data else {}
+    except Exception as e:
+        print(f"❌ Erro ao adicionar vínculo: {e}")
+        return {"_error": str(e)}
+
+
+def delete_vinculo(vinculo_id: int) -> bool:
+    try:
+        supabase.table("vinculos").delete().eq("id", vinculo_id).execute()
+        return True
+    except Exception as e:
+        print(f"❌ Erro ao deletar vínculo: {e}")
+        return False
+
+
+# ======================================================
+# 📄 TIPOS DE CONTRATOS
+# ======================================================
+
+def get_tipos_contratos(tenant_id: str = None) -> list:
+    try:
+        q = supabase.table("tipos_contratos").select("*")
+        if tenant_id:
+            q = q.eq("tenant_id", tenant_id)
+        resp = q.order("nome").execute()
+        return resp.data if resp.data else []
+    except Exception as e:
+        print(f"❌ Erro ao buscar tipos de contratos: {e}")
+        return []
+
+
+def add_tipo_contrato_db(nome: str, tenant_id: str) -> dict:
+    try:
+        resp = supabase.table("tipos_contratos").insert({"nome": nome.strip(), "tenant_id": tenant_id}).execute()
+        return resp.data[0] if resp.data else {}
+    except Exception as e:
+        print(f"❌ Erro ao adicionar tipo de contrato: {e}")
+        return {"_error": str(e)}
+
+
+def delete_tipo_contrato_db(tipo_id: int) -> bool:
+    try:
+        supabase.table("tipos_contratos").delete().eq("id", tipo_id).execute()
+        return True
+    except Exception as e:
+        print(f"❌ Erro ao deletar tipo de contrato: {e}")
+        return False
+
+
+# ======================================================
+# ⏰ TIPOS DE PRAZOS
+# ======================================================
+
+def get_tipos_prazos_db(tenant_id: str = None) -> list:
+    try:
+        q = supabase.table("tipos_prazos").select("*")
+        if tenant_id:
+            q = q.eq("tenant_id", tenant_id)
+        resp = q.order("nome").execute()
+        return resp.data if resp.data else []
+    except Exception as e:
+        print(f"❌ Erro ao buscar tipos de prazos: {e}")
+        return []
+
+
+def add_tipo_prazo_db(nome: str, tenant_id: str) -> dict:
+    try:
+        resp = supabase.table("tipos_prazos").insert({"nome": nome.strip(), "tenant_id": tenant_id}).execute()
+        return resp.data[0] if resp.data else {}
+    except Exception as e:
+        print(f"❌ Erro ao adicionar tipo de prazo: {e}")
+        return {"_error": str(e)}
+
+
+def delete_tipo_prazo_db(tipo_id: int) -> bool:
+    try:
+        supabase.table("tipos_prazos").delete().eq("id", tipo_id).execute()
+        return True
+    except Exception as e:
+        print(f"❌ Erro ao deletar tipo de prazo: {e}")
+        return False
+
+
+# ======================================================
+# STORAGE — ANEXOS
+# ======================================================
+STORAGE_BUCKET = "contratos"
 
 
 def _guess_mime(filename: str) -> str:
     ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
     mimes = {
-        "pdf":  "application/pdf",
-        "doc":  "application/msword",
+        "pdf": "application/pdf",
+        "doc": "application/msword",
         "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "xls":  "application/vnd.ms-excel",
+        "xls": "application/vnd.ms-excel",
         "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "ppt":  "application/vnd.ms-powerpoint",
-        "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        "png":  "image/png",
-        "jpg":  "image/jpeg",
-        "jpeg": "image/jpeg",
-        "gif":  "image/gif",
-        "webp": "image/webp",
-        "txt":  "text/plain",
-        "csv":  "text/csv",
-        "zip":  "application/zip",
+        "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+        "gif": "image/gif", "webp": "image/webp",
+        "txt": "text/plain", "csv": "text/csv",
+        "zip": "application/zip",
     }
     return mimes.get(ext, "application/octet-stream")
 
 
 def upload_anexo(contrato_id: int, nome_arquivo: str, file_bytes: bytes):
-    """
-    Faz upload para o Supabase Storage e registra na tabela anexos.
-    Path de storage: contratos/{contrato_id}/{timestamp}_{nome_arquivo}
-    Retorna o dict do registro criado, ou None em caso de erro.
-    """
     try:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         storage_path = f"contratos/{contrato_id}/{ts}_{nome_arquivo}"
-
         supabase.storage.from_(STORAGE_BUCKET).upload(
-            storage_path,
-            file_bytes,
+            storage_path, file_bytes,
             {"content-type": _guess_mime(nome_arquivo), "upsert": "false"},
         )
-
         url = supabase.storage.from_(STORAGE_BUCKET).get_public_url(storage_path)
-
-        return add_anexo(
-            contrato_id=contrato_id,
-            nome_arquivo=nome_arquivo,
-            arquivo_url=url,
-            arquivo_path=storage_path,
-        )
-
+        return add_anexo(contrato_id=contrato_id, nome_arquivo=nome_arquivo,
+                         arquivo_url=url, arquivo_path=storage_path)
     except Exception as e:
         print(f"❌ Erro ao fazer upload de anexo: {e}")
         return None
 
 
-def delete_anexo(anexo_id: int, arquivo_path: str | None = None) -> bool:
-    """Remove do Storage (se tiver path) e da tabela anexos."""
+def delete_anexo(anexo_id: int, arquivo_path: str = None) -> bool:
     try:
         if arquivo_path:
             try:
