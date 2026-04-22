@@ -913,38 +913,6 @@ def update_vinculo(vinculo_id: int, dados: dict) -> dict:
     except Exception as e:
         print(f"❌ Erro ao atualizar vínculo: {e}")
         return {"_error": str(e)}
-# ======================================================
-# 📄 TIPOS DE CONTRATOS
-# ======================================================
-
-def get_tipos_contratos(tenant_id: str = None) -> list:
-    try:
-        q = supabase.table("tipos_contratos").select("*")
-        if tenant_id:
-            q = q.eq("tenant_id", tenant_id)
-        resp = q.order("nome").execute()
-        return resp.data if resp.data else []
-    except Exception as e:
-        print(f"❌ Erro ao buscar tipos de contratos: {e}")
-        return []
-
-
-def add_tipo_contrato_db(nome: str, tenant_id: str) -> dict:
-    try:
-        resp = supabase.table("tipos_contratos").insert({"nome": nome.strip(), "tenant_id": tenant_id}).execute()
-        return resp.data[0] if resp.data else {}
-    except Exception as e:
-        print(f"❌ Erro ao adicionar tipo de contrato: {e}")
-        return {"_error": str(e)}
-
-
-def delete_tipo_contrato_db(tipo_id: int) -> bool:
-    try:
-        supabase.table("tipos_contratos").delete().eq("id", tipo_id).execute()
-        return True
-    except Exception as e:
-        print(f"❌ Erro ao deletar tipo de contrato: {e}")
-        return False
 
 
 # ======================================================
@@ -1030,4 +998,127 @@ def delete_anexo(anexo_id: int, arquivo_path: str = None) -> bool:
         return True
     except Exception as e:
         print(f"❌ Erro ao deletar anexo: {e}")
+        return False
+    
+    # ======================================================
+# TIPOS DE CONTRATO
+# ======================================================
+# ======================================================
+# 📄 TIPOS DE CONTRATOS
+# ======================================================
+
+def get_tipos_contratos():
+    try:
+        resp = _safe_exec(
+            supabase.table("tipos_contratos")
+            .select("*")
+            .order("nome"),
+            "Erro tipos_contratos"
+        )
+        return resp.data if resp else []
+    except Exception as e:
+        print(f"❌ Erro ao buscar tipos de contratos: {e}")
+        return []
+
+
+def add_tipo_contrato(nome: str):
+    try:
+        resp = supabase.table("tipos_contratos").insert({
+            "nome": nome.strip()
+        }).execute()
+
+        return resp.data[0] if resp.data else None
+
+    except Exception as e:
+        print(f"❌ Erro ao adicionar tipo de contrato: {e}")
+        return None
+
+
+def update_tipo_contrato(tipo_id: int, dados: dict):
+    try:
+        resp = (
+            supabase.table("tipos_contratos")
+            .update(dados)
+            .eq("id", tipo_id)
+            .execute()
+        )
+
+        return resp.data[0] if resp.data else None
+
+    except Exception as e:
+        print(f"❌ Erro ao atualizar tipo de contrato: {e}")
+        return None
+
+
+def delete_tipo_contrato(tipo_id: int):
+    try:
+        supabase.table("tipos_contratos")\
+            .delete()\
+            .eq("id", tipo_id)\
+            .execute()
+
+        return True
+
+    except Exception as e:
+        print(f"❌ Erro ao deletar tipo de contrato: {e}")
+        return False
+    
+# ======================================================
+# ⏰ TIPOS DE PRAZOS
+# ======================================================
+
+def get_tipos_prazos():
+    try:
+        resp = _safe_exec(
+            supabase.table("tipos_prazos")
+            .select("*")
+            .order("nome"),
+            "Erro tipos_prazos"
+        )
+        return resp.data if resp else []
+    except Exception as e:
+        print(f"❌ Erro ao buscar tipos de prazos: {e}")
+        return []
+
+
+def add_tipo_prazo(nome: str):
+    try:
+        resp = supabase.table("tipos_prazos").insert({
+            "nome": nome.strip()
+        }).execute()
+
+        return resp.data[0] if resp.data else None
+
+    except Exception as e:
+        print(f"❌ Erro ao adicionar tipo de prazo: {e}")
+        return None
+
+
+def update_tipo_prazo(tipo_id: int, dados: dict):
+    try:
+        resp = (
+            supabase.table("tipos_prazos")
+            .update(dados)
+            .eq("id", tipo_id)
+            .execute()
+        )
+
+        return resp.data[0] if resp.data else None
+
+    except Exception as e:
+        print(f"❌ Erro ao atualizar tipo de prazo: {e}")
+        return None
+
+
+def delete_tipo_prazo(tipo_id: int):
+    try:
+        supabase.table("tipos_prazos")\
+            .delete()\
+            .eq("id", tipo_id)\
+            .execute()
+
+        return True
+
+    except Exception as e:
+        print(f"❌ Erro ao deletar tipo de prazo: {e}")
         return False
