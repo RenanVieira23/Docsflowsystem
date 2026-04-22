@@ -26,12 +26,6 @@ def _safe_exec(query, msg="Erro Supabase"):
         print(f"❌ {msg}: {e}")
         return None
 
-
-def _clear_cache():
-    _cache_clientes.cache_clear()
-    _cache_contratos.cache_clear()
-
-
 def _as_bool(v):
     if isinstance(v, bool):
         return v
@@ -116,20 +110,49 @@ def _merge_admin_flags(perfil: dict, auth_user) -> dict:
 
 
 # ======================================================
-# CACHE
+# 📊 CACHE (MULTI-TENANT)
 # ======================================================
 
-@lru_cache(maxsize=1)
-def _cache_clientes():
-    resp = _safe_exec(supabase.table("clientes").select("*"), "Erro cache clientes")
-    return resp.data if resp else []
+@lru_cache(maxsize=32)
+def _cache_clientes(tenant_id: str):
+    try:
+        resp = _safe_exec(
+            supabase.table("clientes")
+            .select("*")
+            .eq("tenant_id", tenant_id),
+            "Erro cache clientes"
+        )
 
-@lru_cache(maxsize=1)
-def _cache_contratos():
-    resp = _safe_exec(supabase.table("contratos").select("*"), "Erro cache contratos")
-    return resp.data if resp else []
+        return resp.data if resp else []
+
+    except Exception as e:
+        print(f"❌ erro cache clientes: {e}")
+        return []
 
 
+@lru_cache(maxsize=32)
+def _cache_contratos(tenant_id: str):
+    try:
+        resp = _safe_exec(
+            supabase.table("contratos")
+            .select("*")
+            .eq("tenant_id", tenant_id),
+            "Erro cache contratos"
+        )
+
+        return resp.data if resp else []
+
+    except Exception as e:
+        print(f"❌ erro cache contratos: {e}")
+        return []
+
+
+def _clear_cache():
+    try:
+        _cache_clientes.cache_clear()
+        _cache_contratos.cache_clear()
+    except Exception as e:
+        print(f"❌ erro ao limpar cache: {e}")
 # ======================================================
 # AUTH + PERFIL
 # ======================================================
@@ -224,88 +247,158 @@ def get_tenant_por_id(tenant_id):
         print(f"❌ Erro ao buscar tenant: {e}")
         return None
 # ======================================================
-# CLIENTES
+# 👥 CLIENTES (MULTI-TENANT SEGURO)
 # ======================================================
 
-def get_clientes():
+from functools import lru_cache
+from database.supabase_client import supabase
+
+# ======================================================
+# GET CLIENTES
+# ======================================================
+
+def get_clientes(tenant_id: str):
     try:
-        return list(_cache_clientes())
+        return list(_cache_clientes(tenant_id))
     except Exception as e:
-        print(f"❌ Erro ao buscar clientes: {e}")
+        print(f"❌ erro clientes: {e}")
         return []
 
-def add_cliente(cliente):
-    try:
-        data = supabase.table("clientes").insert(cliente).execute()
-        _clear_cache()
-        if data.data:
-            return data.data[0]
-    except Exception as e:
-        print(f"❌ Erro ao adicionar cliente: {e}")
-    return None
 
-def delete_cliente(cliente_id):
+def add_cliente(cliente: dict):
+    try:
+        # segurança: nunca deixa inserir sem tenant_id
+        if "tenant_id" not in cliente:
+            raise Exception("tenant_id obrigatório")
+
+        data = supabase.table("clientes").insert(cliente).execute()
+
+        _clear_cache()
+
+        return data.data[0] if data.data else None
+
+    except Exception as e:
+        print(f"❌ erro add cliente: {e}")
+        return None
+
+
+def delete_cliente(cliente_id: int):
     try:
         supabase.table("clientes").delete().eq("id", cliente_id).execute()
         _clear_cache()
     except Exception as e:
-        print(f"❌ Erro ao deletar cliente: {e}")
+        print(f"❌ erro delete cliente: {e}")
+
 
 def update_cliente(cliente_id: int, dados: dict):
     try:
-        resp = supabase.table("clientes").update(dados).eq("id", cliente_id).execute()
+        resp = (
+            supabase.table("clientes")
+            .update(dados)
+            .eq("id", cliente_id)
+            .execute()
+        )
+
         _clear_cache()
+
         return resp.data[0] if resp.data else None
+
     except Exception as e:
-        print(f"❌ Erro ao atualizar cliente: {e}")
+        print(f"❌ erro update cliente: {e}")
         return None
 
 
+
+
 # ======================================================
-# CONTRATOS
+# 📄 CONTRATOS (MULTI-TENANT SEGURO)
 # ======================================================
 
-def get_contratos():
+# ======================================================
+# GET TODOS CONTRATOS (TENANT)
+# ======================================================
+
+def get_contratos(tenant_id: str):
     try:
-        return list(_cache_contratos())
+        return list(_cache_contratos(tenant_id))
     except Exception as e:
         print(f"❌ Erro ao buscar contratos: {e}")
         return []
 
-def get_contratos_por_cliente(cliente_id):
+
+# ======================================================
+# CONTRATOS POR CLIENTE (TENANT + CLIENTE)
+# ======================================================
+
+def get_contratos_por_cliente(cliente_id: int, tenant_id: str):
     try:
-        data = supabase.table("contratos").select("*").eq("cliente_id", cliente_id).execute()
+        data = (
+            supabase.table("contratos")
+            .select("*")
+            .eq("cliente_id", cliente_id)
+            .eq("tenant_id", tenant_id)
+            .execute()
+        )
+
         return data.data if data.data else []
+
     except Exception as e:
         print(f"❌ Erro ao buscar contratos do cliente {cliente_id}: {e}")
         return []
 
-def add_contrato(contrato):
+
+# ======================================================
+# ADD CONTRATO (FORÇA TENANT)
+# ======================================================
+
+def add_contrato(contrato: dict):
     try:
+        if "tenant_id" not in contrato:
+            raise Exception("tenant_id obrigatório no contrato")
+
         resp = supabase.table("contratos").insert(contrato).execute()
+
         _clear_cache()
-        if resp.data and len(resp.data) > 0:
-            return resp.data[0]
+
+        return resp.data[0] if resp.data else None
+
     except Exception as e:
         print(f"❌ Erro ao adicionar contrato: {e}")
-    return None
+        return None
 
-def delete_contrato(contrato_id):
+
+# ======================================================
+# DELETE CONTRATO
+# ======================================================
+
+def delete_contrato(contrato_id: int):
     try:
         supabase.table("contratos").delete().eq("id", contrato_id).execute()
         _clear_cache()
     except Exception as e:
         print(f"❌ Erro ao deletar contrato: {e}")
 
+
+# ======================================================
+# UPDATE CONTRATO
+# ======================================================
+
 def update_contrato(contrato_id: int, dados: dict):
     try:
-        resp = supabase.table("contratos").update(dados).eq("id", contrato_id).execute()
+        resp = (
+            supabase.table("contratos")
+            .update(dados)
+            .eq("id", contrato_id)
+            .execute()
+        )
+
         _clear_cache()
+
         return resp.data[0] if resp.data else None
+
     except Exception as e:
         print(f"❌ Erro ao atualizar contrato: {e}")
         return None
-
 
 # ======================================================
 # PRAZOS

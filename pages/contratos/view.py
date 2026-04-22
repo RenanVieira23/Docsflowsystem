@@ -295,27 +295,36 @@ class ContratosView(ft.Column):
     def aplicar_click(self, e):
         self.aplicar_filtros()
 
-    # ======================================================
-    # CARREGAMENTO
-    # ======================================================
+# ======================================================
+# CARREGAMENTO (MULTI-TENANT)
+# ======================================================
 
     async def _carregar_dados(self):
         self.loading.visible = True
         self.app_page.update()
 
         try:
-            contratos = await asyncio.to_thread(get_contratos)
-            clientes  = await asyncio.to_thread(get_clientes)
+            tenant_id = self.app_page.local_store.get("tenant_id")
+
+            if not tenant_id:
+                print("❌ tenant_id não encontrado")
+                contratos = []
+                clientes = []
+            else:
+                contratos = await asyncio.to_thread(get_contratos, tenant_id)
+                clientes  = await asyncio.to_thread(get_clientes, tenant_id)
+
         except Exception as ex:
             print("Erro contratos:", ex)
             contratos = []
-            clientes  = []
+            clientes = []
 
-        self.contratos    = contratos or []
+        self.contratos = contratos or []
         self.clientes_map = {c["id"]: c["nome"] for c in (clientes or [])}
 
         self.loading.visible = False
         self.aplicar_filtros()
+
 
     def recarregar(self, e=None):
         self.app_page.run_task(self._carregar_dados)
