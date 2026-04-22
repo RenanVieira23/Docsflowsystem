@@ -1008,10 +1008,15 @@ def get_vinculos(tenant_id: str = None) -> list:
         return []
 
 
-def add_vinculo(tipo: str, tenant_id: str) -> dict:
+def add_vinculo(tipo: str, tenant_id: str):
     try:
-        resp = supabase.table("vinculos").insert({"tipo": tipo.strip(), "tenant_id": tenant_id}).execute()
+        resp = supabase.table("vinculos").insert({
+            "tipo": tipo.strip(),
+            "tenant_id": tenant_id
+        }).execute()
+
         return resp.data[0] if resp.data else {}
+
     except Exception as e:
         print(f"❌ Erro ao adicionar vínculo: {e}")
         return {"_error": str(e)}
@@ -1153,10 +1158,11 @@ def get_tipos_contratos():
         return []
 
 
-def add_tipo_contrato(nome: str):
+def add_tipo_contrato(nome: str, tenant_id: str):
     try:
         resp = supabase.table("tipos_contratos").insert({
-            "nome": nome.strip()
+            "nome": nome.strip(),
+            "tenant_id": tenant_id
         }).execute()
 
         return resp.data[0] if resp.data else None
@@ -1213,10 +1219,11 @@ def get_tipos_prazos():
         return []
 
 
-def add_tipo_prazo(nome: str):
+def add_tipo_prazo(nome: str, tenant_id: str):
     try:
         resp = supabase.table("tipos_prazos").insert({
-            "nome": nome.strip()
+            "nome": nome.strip(),
+            "tenant_id": tenant_id
         }).execute()
 
         return resp.data[0] if resp.data else None
@@ -1224,6 +1231,7 @@ def add_tipo_prazo(nome: str):
     except Exception as e:
         print(f"❌ Erro ao adicionar tipo de prazo: {e}")
         return None
+
 
 
 def update_tipo_prazo(tipo_id: int, dados: dict):
