@@ -1,0 +1,1 @@
+from pages.alertas_cadastro.view import alertas_cadastro_view

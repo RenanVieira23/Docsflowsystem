@@ -7,6 +7,7 @@ from pages.admin.view import admin_view  # ✅ AQUI
 from database.models import registrar_log
 from pages.partes.view import partes_view
 from pages.tipos_partes.view import tipos_partes_view
+from pages.alertas_cadastro.view import alertas_cadastro_view
 from app.layout import AppLayout
 
 
@@ -136,6 +137,12 @@ def main(page: ft.Page):
         if route == "/tipos-partes":
             if route not in views_cache:
                 views_cache[route] = tipos_partes_view(page)
+            return views_cache[route]
+        
+        
+        if route == "/alertas-cadastro":
+            if route not in views_cache:
+                views_cache[route] = alertas_cadastro_view(page)
             return views_cache[route]
 
         # ================= ADMIN =================

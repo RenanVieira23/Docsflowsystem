@@ -4,1295 +4,367 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>JuridicPro — Apresentação do Sistema</title>
+    <title>DocsFlow System — Gestão Inteligente de Documentos</title>
+
     <meta name="description"
-        content="JuridicPro: sistema de gestão de contratos e prazos com alertas automáticos, auditoria e exportação de relatórios (PDF/Excel). Planos, escopo e contato." />
+        content="DocsFlow System é uma plataforma para gestão de documentos, contratos e prazos com automação, alertas, relatórios e segurança empresarial." />
+
     <meta name="theme-color" content="#0F2A44" />
 
     <style>
         :root {
-            /* Paleta do JuridicPro (baseada no seu sistema) */
-            --bg: #F7F9FC;
+            --bg: #F6F8FB;
             --surface: #FFFFFF;
-
             --text: #1F2937;
-            --muted: #4B5563;
-            --muted-2: #6B7280;
-
-            --line: rgba(15, 42, 68, .12);
+            --muted: #6B7280;
 
             --primary: #0F2A44;
-            --primary-2: #1F4E79;
-            --primary-3: #2E5E8C;
+            --primary-soft: #1F4E79;
 
-            --good: #7CB342;
-            --warn: #F59E0B;
-            --danger: #D32F2F;
-
+            --border: rgba(15, 42, 68, .12);
             --shadow: 0 18px 40px rgba(15, 42, 68, .08);
-            --shadow-soft: 0 10px 24px rgba(15, 42, 68, .06);
 
-            --radius-xl: 22px;
-            --radius-lg: 18px;
-            --radius-md: 14px;
-
-            --container: 1120px;
+            --radius: 18px;
+            --container: 1100px;
         }
 
         * {
             box-sizing: border-box;
         }
 
-        html,
-        body {
-            height: 100%;
-        }
-
         body {
             margin: 0;
-            font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, "Helvetica Neue", "Noto Sans", "Liberation Sans", sans-serif;
-            color: var(--text);
+            font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
             background: var(--bg);
+            color: var(--text);
             line-height: 1.5;
         }
 
         a {
             color: inherit;
+            text-decoration: none;
         }
 
         .container {
             max-width: var(--container);
-            margin: 0 auto;
-            padding: 26px 18px 80px;
+            margin: auto;
+            padding: 24px 16px 80px;
         }
 
-        /* TOP NAV */
-        .topbar {
+        /* HEADER */
+        header {
             position: sticky;
             top: 0;
-            z-index: 50;
+            background: rgba(246, 248, 251, .85);
             backdrop-filter: blur(10px);
-            background: rgba(247, 249, 252, .78);
-            border-bottom: 1px solid var(--line);
+            border-bottom: 1px solid var(--border);
+            z-index: 10;
         }
 
-        .topbarInner {
+        .top {
             max-width: var(--container);
-            margin: 0 auto;
-            padding: 14px 18px;
+            margin: auto;
             display: flex;
-            align-items: center;
             justify-content: space-between;
-            gap: 14px;
-        }
-
-        .brand {
-            display: flex;
             align-items: center;
-            gap: 12px;
-            text-decoration: none;
-            min-width: 220px;
+            padding: 14px 16px;
         }
 
-        .brandMark {
-            width: 40px;
-            height: 40px;
-            border-radius: 14px;
-            background: linear-gradient(135deg, var(--primary), var(--primary-3));
-            box-shadow: 0 10px 22px rgba(46, 94, 140, .18);
-            flex: 0 0 auto;
-        }
-
-        .brandText strong {
-            display: block;
-            font-size: 16px;
-            letter-spacing: .2px;
-            line-height: 1.1;
-        }
-
-        .brandText span {
-            display: block;
-            font-size: 12px;
-            color: var(--muted);
-            margin-top: 2px;
-        }
-
-        .nav {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            flex-wrap: wrap;
-            justify-content: flex-end;
-        }
-
-        .nav a {
-            text-decoration: none;
+        nav a {
+            margin-left: 14px;
             font-size: 13px;
             color: var(--muted);
-            padding: 8px 10px;
-            border-radius: 999px;
-            border: 1px solid transparent;
-            transition: background .12s ease, border-color .12s ease, color .12s ease;
         }
 
-        .nav a:hover {
-            background: rgba(15, 42, 68, .06);
-            border-color: rgba(15, 42, 68, .10);
+        nav a:hover {
             color: var(--text);
         }
 
         /* HERO */
         .hero {
             display: grid;
-            grid-template-columns: 1.15fr .85fr;
-            gap: 16px;
-            align-items: stretch;
-            margin-top: 22px;
+            grid-template-columns: 1.3fr 1fr;
+            gap: 18px;
+            margin-top: 20px;
         }
 
-        @media (max-width: 980px) {
+        @media(max-width:900px) {
             .hero {
                 grid-template-columns: 1fr;
             }
-
-            .brand {
-                min-width: auto;
-            }
         }
 
-        .heroCard {
+        .card {
             background: var(--surface);
-            border: 1px solid var(--line);
-            border-radius: var(--radius-xl);
-            padding: 26px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 22px;
             box-shadow: var(--shadow);
-            position: relative;
-            overflow: hidden;
-        }
-
-        .heroCard::before {
-            content: "";
-            position: absolute;
-            inset: -2px;
-            background:
-                radial-gradient(640px 260px at 20% 0%, rgba(46, 94, 140, .14), transparent 60%),
-                radial-gradient(520px 260px at 90% 20%, rgba(31, 78, 121, .10), transparent 60%);
-            pointer-events: none;
-        }
-
-        .heroCard>* {
-            position: relative;
-        }
-
-        .kicker {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 12px;
-            font-weight: 800;
-            color: var(--primary-2);
-            background: rgba(15, 42, 68, .06);
-            border: 1px solid rgba(15, 42, 68, .10);
-            padding: 7px 10px;
-            border-radius: 999px;
-        }
-
-        .kickerDot {
-            width: 9px;
-            height: 9px;
-            border-radius: 999px;
-            background: var(--good);
-            box-shadow: 0 0 0 4px rgba(124, 179, 66, .14);
         }
 
         h1 {
-            margin: 14px 0 10px;
-            font-size: 38px;
-            line-height: 1.1;
-            letter-spacing: -0.6px;
+            font-size: 36px;
+            margin: 0 0 10px;
         }
 
-        @media (max-width: 520px) {
-            h1 {
-                font-size: 30px;
-            }
-        }
-
-        .sub {
-            margin: 0 0 12px;
+        .subtitle {
             color: var(--muted);
-            font-size: 15px;
-            max-width: 80ch;
+            margin-bottom: 18px;
         }
 
-        .heroMeta {
-            margin-top: 12px;
-            color: var(--muted-2);
+        .tag {
+            display: inline-block;
             font-size: 12px;
-        }
-
-        .kpiCol {
-            display: grid;
-            gap: 12px;
-        }
-
-        .kpi {
-            background: var(--surface);
-            border: 1px solid var(--line);
-            border-radius: var(--radius-xl);
-            padding: 16px;
-            box-shadow: var(--shadow-soft);
-        }
-
-        .kpi b {
-            display: block;
-            font-size: 14px;
-            margin-bottom: 4px;
-        }
-
-        .kpi span {
-            display: block;
-            color: var(--muted);
-            font-size: 13px;
-        }
-
-        .kpiTag {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            margin-top: 10px;
             padding: 6px 10px;
             border-radius: 999px;
-            border: 1px solid rgba(15, 42, 68, .12);
-            background: rgba(15, 42, 68, .04);
-            color: var(--muted);
-            font-size: 12px;
+            background: rgba(15, 42, 68, .06);
+            color: var(--primary-soft);
             font-weight: 700;
-            width: fit-content;
         }
 
-        .tagDot {
-            width: 8px;
-            height: 8px;
-            border-radius: 999px;
-            background: var(--primary-3);
-            box-shadow: 0 0 0 4px rgba(46, 94, 140, .12);
-        }
-
-        .tagDot.good {
-            background: var(--good);
-            box-shadow: 0 0 0 4px rgba(124, 179, 66, .12);
-        }
-
-        .tagDot.warn {
-            background: var(--warn);
-            box-shadow: 0 0 0 4px rgba(245, 158, 11, .12);
-        }
-
-        /* SECTIONS */
-        .section {
-            margin-top: 18px;
-            background: var(--surface);
-            border: 1px solid var(--line);
-            border-radius: var(--radius-xl);
-            padding: 22px;
-            box-shadow: var(--shadow-soft);
-        }
-
-        .sectionHeader {
-            display: flex;
-            align-items: flex-end;
-            justify-content: space-between;
-            gap: 14px;
-            flex-wrap: wrap;
-        }
-
-        h2 {
-            margin: 0;
-            font-size: 18px;
-            letter-spacing: -0.2px;
-        }
-
-        .sectionHeader p {
-            margin: 6px 0 0;
-            color: var(--muted);
-            font-size: 13px;
-            max-width: 92ch;
-        }
-
-        .grid3 {
+        .grid {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
             gap: 14px;
-            margin-top: 14px;
+            margin-top: 16px;
         }
 
-        @media (max-width: 980px) {
-            .grid3 {
+        @media(max-width:900px) {
+            .grid {
                 grid-template-columns: 1fr;
             }
         }
 
-        .mini {
-            border: 1px solid var(--line);
-            background: rgba(15, 42, 68, .02);
-            border-radius: var(--radius-lg);
+        .box {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
             padding: 16px;
         }
 
-        .mini b {
-            display: block;
+        .box h3 {
+            margin: 0 0 6px;
+            font-size: 15px;
         }
 
-        .mini p {
-            margin: 6px 0 0;
-            color: var(--muted);
+        .box p {
+            margin: 0;
             font-size: 13px;
-        }
-
-        .mini ul {
-            margin: 10px 0 0;
-            padding-left: 18px;
             color: var(--muted);
-            font-size: 13px;
-        }
-
-        .mini li {
-            margin: 6px 0;
-        }
-
-        .hr {
-            height: 1px;
-            background: var(--line);
-            margin: 18px 0;
-        }
-
-        /* PILLS */
-        .pill {
-            font-size: 12px;
-            color: var(--muted);
-            padding: 8px 12px;
-            border: 1px solid rgba(15, 42, 68, .14);
-            border-radius: 999px;
-            background: rgba(15, 42, 68, .04);
-            white-space: nowrap;
-            font-weight: 700;
         }
 
         /* PLANS */
-        .planCards {
+        .plans {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
             gap: 14px;
             margin-top: 14px;
         }
 
-        @media (max-width: 980px) {
-            .planCards {
+        @media(max-width:900px) {
+            .plans {
                 grid-template-columns: 1fr;
             }
         }
 
         .plan {
-            border: 1px solid var(--line);
-            border-radius: var(--radius-xl);
             background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
             padding: 18px;
             box-shadow: var(--shadow);
-            position: relative;
-            overflow: hidden;
         }
 
         .plan.featured {
-            border-color: rgba(46, 94, 140, .35);
-            box-shadow: 0 22px 60px rgba(46, 94, 140, .12);
-            background:
-                radial-gradient(700px 280px at 20% 0%, rgba(46, 94, 140, .14), transparent 60%),
-                var(--surface);
-        }
-
-        .badge {
-            position: absolute;
-            top: 14px;
-            right: 14px;
-            font-size: 11px;
-            font-weight: 900;
-            padding: 7px 10px;
-            border-radius: 999px;
-            background: rgba(46, 94, 140, .10);
-            border: 1px solid rgba(46, 94, 140, .24);
-            color: var(--primary-2);
-        }
-
-        .plan h3 {
-            margin: 0;
-            font-size: 16px;
-            letter-spacing: -0.1px;
+            border: 1px solid rgba(15, 42, 68, .35);
         }
 
         .price {
-            display: flex;
-            align-items: baseline;
-            gap: 8px;
-            margin-top: 10px;
-        }
-
-        .price b {
-            font-size: 30px;
-            letter-spacing: -0.6px;
+            font-size: 28px;
+            font-weight: 800;
+            margin: 10px 0;
             color: var(--primary);
         }
 
-        .price span {
-            font-size: 12px;
-            color: var(--muted);
-            font-weight: 700;
-        }
-
-        .plan p {
-            margin: 10px 0 0;
-            color: var(--muted);
-            font-size: 13px;
-        }
-
-        .check {
-            list-style: none;
-            padding: 0;
-            margin: 14px 0 0;
-            display: grid;
-            gap: 9px;
-        }
-
-        .check li {
-            display: flex;
-            gap: 10px;
-            align-items: flex-start;
-            color: var(--muted);
-            font-size: 13px;
-        }
-
-        .check i {
-            width: 18px;
-            height: 18px;
-            flex: 0 0 18px;
-            border-radius: 6px;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            font-style: normal;
-            font-weight: 900;
-            color: var(--good);
-            background: rgba(124, 179, 66, .14);
-            border: 1px solid rgba(124, 179, 66, .32);
-            margin-top: 1px;
-        }
-
-        .check strong {
-            color: var(--text);
-        }
-
-        .note {
-            margin-top: 10px;
-            color: var(--muted-2);
-            font-size: 12px;
-        }
-
-        /* TABLE */
-        table {
-            width: 100%;
-            border-collapse: separate;
-            border-spacing: 0;
-            overflow: hidden;
-            border-radius: var(--radius-lg);
-            border: 1px solid var(--line);
-            background: var(--surface);
-            margin-top: 14px;
-        }
-
-        thead th {
-            text-align: left;
-            font-size: 12px;
-            color: var(--muted-2);
-            padding: 12px 12px;
-            background: rgba(15, 42, 68, .03);
-            border-bottom: 1px solid var(--line);
-            white-space: nowrap;
-        }
-
-        tbody td {
-            padding: 12px 12px;
-            border-bottom: 1px solid var(--line);
-            color: var(--muted);
-            font-size: 13px;
-            vertical-align: top;
-        }
-
-        tbody tr:last-child td {
-            border-bottom: none;
-        }
-
-        .yes {
-            color: var(--good);
-            font-weight: 900;
-        }
-
-        .no {
-            color: rgba(31, 41, 55, .35);
-        }
-
-        /* DETAILS */
-        details {
-            border: 1px solid var(--line);
-            background: rgba(15, 42, 68, .02);
-            border-radius: var(--radius-lg);
-            padding: 12px 14px;
-            margin-top: 10px;
-        }
-
-        summary {
-            cursor: pointer;
-            font-weight: 900;
-            color: var(--text);
-            list-style: none;
-        }
-
-        summary::-webkit-details-marker {
-            display: none;
-        }
-
-        details p,
-        details ul {
-            margin: 10px 0 0;
-            color: var(--muted);
-            font-size: 13px;
-        }
-
-        .bullets {
-            margin: 10px 0 0;
+        ul {
             padding-left: 18px;
+            color: var(--muted);
+            font-size: 13px;
         }
 
-        .bullets li {
+        li {
             margin: 6px 0;
         }
 
-        code {
-            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        footer {
+            margin-top: 30px;
+            text-align: center;
             font-size: 12px;
-            background: rgba(15, 42, 68, .06);
-            border: 1px solid rgba(15, 42, 68, .10);
-            padding: 2px 6px;
-            border-radius: 8px;
-        }
-
-        /* FOOTER */
-        .footer {
-            margin-top: 18px;
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            justify-content: space-between;
-            align-items: center;
-            color: var(--muted-2);
-            font-size: 12px;
-        }
-
-        .footerLinks {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            align-items: center;
-        }
-
-        .footerLinks a {
-            text-decoration: none;
-            color: var(--primary-2);
-            font-weight: 800;
-            padding: 6px 10px;
-            border-radius: 999px;
-            border: 1px solid rgba(15, 42, 68, .10);
-            background: rgba(15, 42, 68, .03);
-        }
-
-        .footerLinks a:hover {
-            background: rgba(15, 42, 68, .06);
-            border-color: rgba(15, 42, 68, .18);
+            color: var(--muted);
         }
     </style>
 </head>
 
 <body>
-    <header class="topbar">
-        <div class="topbarInner">
-            <a class="brand" href="#topo" aria-label="JuridicPro">
-                <div class="brandMark" aria-hidden="true"></div>
-                <div class="brandText">
-                    <strong>JuridicPro</strong>
-                    <span>Gestão de contratos e prazos</span>
-                </div>
-            </a>
 
-            <nav class="nav" aria-label="Navegação">
-                <a href="#sobre">Sobre</a>
-                <a href="#seguranca">Segurança & LGPD</a>
-                <a href="#planos">Planos</a>
-                <a href="#implantacao">Implantação</a>
-                <a href="#funcionalidades">Funcionalidades</a>
-                <a href="#faq">FAQ</a>
-                <a href="#contato">Contato</a>
-            </nav>
+<header>
+    <div class="top">
+
+        <div style="display:flex;align-items:center;gap:10px;">
+            <img 
+                src="https://mefkcglvxqememduyweh.supabase.co/storage/v1/object/sign/Heringer/LogoDocsFlow2-removebg-preview.png?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV9jNjM3NDNjNi00NWY4LTRhYWUtODQ0NS05M2EzYmViNjg4OGYiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJIZXJpbmdlci9Mb2dvRG9jc0Zsb3cyLXJlbW92ZWJnLXByZXZpZXcucG5nIiwiaWF0IjoxNzc2ODAxMTI1LCJleHAiOjMzNTM2MDExMjV9.jqxPmg6Nmp6XfSppw6NUzjhnyINV0dw-x_Gv3ejjftg"
+                alt="DocsFlow System"
+                style="height:38px; width:auto;"
+            />
+
+            </div>
         </div>
-    </header>
 
-    <main class="container" id="topo">
-        <!-- HERO -->
-        <section class="hero" aria-label="Apresentação">
-            <div class="heroCard">
-                <div class="kicker"><span class="kickerDot"></span> Alertas automáticos • Exportações • Auditoria</div>
+        <nav>
+            <a href="#sobre">Solução</a>
+            <a href="#planos">Planos</a>
+            <a href="#seguranca">Segurança</a>
+            <a href="#contato">Contato</a>
+        </nav>
 
-                <h1>JuridicPro</h1>
+    </div>
+</header>
 
-                <p class="sub">
-                    Sistema para controle de clientes, contratos e prazos, com alertas automáticos, auditoria de ações,
-                    relatórios e exportação (PDF/Excel).
-                </p>
+<main class="container">
 
-                <p class="heroMeta">
-                    Os planos mantêm o mesmo conjunto funcional. As diferenças estão em limites de usuários,
-                    administração do sistema,
-                    rotina de backups, personalização visual e modelo de suporte.
-                </p>
-            </div>
+    <!-- HERO -->
+    <section class="hero">
 
-            <div class="kpiCol" aria-label="Destaques">
-                <div class="kpi">
-                    <b>Alertas automáticos</b>
-                    <span>Processamento por vencimento de prazo (base preparada para evolução de tipos de
-                        notificação).</span>
-                    <div class="kpiTag"><span class="tagDot good"></span> Operação</div>
-                </div>
+        <div class="card">
+            <span class="tag">Gestão inteligente de documentos e contratos</span>
 
-                <div class="kpi">
-                    <b>Auditoria (logs)</b>
-                    <span>Registro de ações relevantes, como ativar/desativar contratos (soft delete).</span>
-                    <div class="kpiTag"><span class="tagDot"></span> Governança</div>
-                </div>
+            <h1>Controle total sobre documentos, contratos e prazos</h1>
 
-                <div class="kpi">
-                    <b>Segurança por tenant</b>
-                    <span>Isolamento lógico de dados por cliente (multi-tenant), preparado para políticas de acesso no
-                        banco.</span>
-                    <div class="kpiTag"><span class="tagDot warn"></span> Segurança</div>
-                </div>
-            </div>
-        </section>
-
-        <!-- SOBRE -->
-        <section class="section" id="sobre" aria-label="Sobre">
-            <div class="sectionHeader">
-                <div>
-                    <h2>Visão geral</h2>
-                    <p>
-                        O JuridicPro organiza contratos por cliente, controla vigência e termo final, centraliza prazos
-                        por contrato e oferece filtros avançados
-                        por campos e por período. O sistema utiliza soft delete para contratos e prazos e registra logs
-                        de ações.
-                    </p>
-                </div>
-            </div>
-
-            <div class="grid3">
-                <div class="mini">
-                    <b>Operação</b>
-                    <p>Cadastro/edição/visualização de contratos e prazos, com cálculo automático de datas por vigência
-                        e meses.</p>
-                </div>
-                <div class="mini">
-                    <b>Controle</b>
-                    <p>Filtros por texto, status e período. Tabela compacta com paginação e ações rápidas.</p>
-                </div>
-                <div class="mini">
-                    <b>Base técnica</b>
-                    <p>Supabase (PostgreSQL) com relacionamentos e regras; arquitetura preparada para alertas e evolução
-                        do módulo de relatórios.</p>
-                </div>
-            </div>
-        </section>
-
-        <!-- SEGURANÇA / LGPD -->
-        <section class="section" id="seguranca" aria-label="Segurança, Conformidade e LGPD">
-            <div class="sectionHeader">
-                <div>
-                    <h2>Segurança, Conformidade e LGPD</h2>
-                    <p>
-                        O JuridicPro é projetado com foco em proteção de dados e boas práticas de segurança. Para
-                        clientes
-                        que operam dados sensíveis, o objetivo é reduzir riscos com controles técnicos e governança
-                        (sem prometer “conformidade automática” — cada operação deve aderir às regras do cliente e da
-                        LGPD).
-                    </p>
-                </div>
-                <div class="pill">Camadas de proteção</div>
-            </div>
-
-            <div class="grid3">
-                <div class="mini">
-                    <b>Isolamento por cliente (Multi-tenant)</b>
-                    <p>
-                        A base já está preparada para operar com <b>multi-tenant</b>, garantindo separação lógica dos
-                        dados
-                        de cada cliente.
-                    </p>
-                    <ul>
-                        <li>Coluna <code>tenant_id</code> nas tabelas-chave</li>
-                        <li>Consulta sempre filtrada por tenant</li>
-                        <li>Políticas de acesso no banco (RLS) para evitar vazamento acidental entre clientes</li>
-                    </ul>
-                </div>
-
-                <div class="mini">
-                    <b>Criptografia e transporte seguro</b>
-                    <p>
-                        Infra em nuvem com práticas de criptografia e canal seguro de comunicação.
-                    </p>
-                    <ul>
-                        <li>Dados criptografados <b>em repouso</b> e <b>em trânsito</b> (TLS) — recursos do Supabase
-                        </li>
-                        <li>Senhas do sistema com <b>hash</b> (ex.: bcrypt/argon2) e políticas de força</li>
-                        <li>Links e acessos sempre via <b>HTTPS/SSL</b></li>
-                    </ul>
-                    <p class="note">
-                        Supabase informa criptografia AES-256 em repouso e TLS em trânsito.
-                        :contentReference[oaicite:0]{index=0}
-                    </p>
-                </div>
-
-                <div class="mini">
-                    <b>Governança, auditoria e continuidade</b>
-                    <p>Controles para rastreabilidade e resposta a incidentes.</p>
-                    <ul>
-                        <li><b>Logs de auditoria</b>: quem fez o quê e quando (ações relevantes)</li>
-                        <li><b>Backups</b>: rotina diária e estratégias por plano (global/por cliente)</li>
-                        <li><b>Menor privilégio</b>: perfis/roles e acesso segmentado por usuários</li>
-                    </ul>
-                </div>
-            </div>
-
-            <div class="hr"></div>
-
-            <div class="grid3">
-                <div class="mini">
-                    <b>LGPD na prática (o que o sistema facilita)</b>
-                    <p>Estrutura para apoiar processos básicos de privacidade e proteção de dados.</p>
-                    <ul>
-                        <li>Controle de acesso por usuário e permissões (por perfil/tenant)</li>
-                        <li>Rastreabilidade por logs para investigação e disputa</li>
-                        <li>Política de retenção e exclusão lógica (soft delete) com possibilidade de descarte
-                            definitivo</li>
-                    </ul>
-                </div>
-
-                <div class="mini">
-                    <b>Políticas e documentos</b>
-                    <p>
-                        Para operação comercial, o sistema é acompanhado por documentos essenciais.
-                    </p>
-                    <ul>
-                        <li>Termos de uso e Política de Privacidade</li>
-                        <li>Definição de SLA (disponibilidade e prazos de resposta)</li>
-                        <li>Diretrizes de suporte e canal de atendimento</li>
-                    </ul>
-                </div>
-
-                <div class="mini">
-                    <b>Base de segurança do provedor</b>
-                    <p>
-                        O JuridicPro utiliza Supabase como plataforma de dados e autenticação, com recursos de segurança
-                        e
-                        compliance do provedor.
-                    </p>
-                    <ul>
-                        <li>Controles como MFA para contas administrativas</li>
-                        <li>Relatórios e práticas de segurança do provedor</li>
-                        <li>Criptografia e segurança operacional do ambiente</li>
-                    </ul>
-                    <p class="note">
-                        Supabase detalha recursos como MFA e conformidade SOC 2 Type 2.
-                        :contentReference[oaicite:1]{index=1}
-                    </p>
-                </div>
-            </div>
-
-            <p class="note">
-                Importante: segurança é compartilhada (provedor + configuração + operação do cliente). O JuridicPro é
-                entregue com base preparada para políticas e controles — e evolui conforme o nível de exigência do
-                cliente.
+            <p class="subtitle">
+                O DocsFlow System centraliza sua operação documental com automação, alertas inteligentes e visão completa da gestão.
             </p>
-        </section>
 
-        <!-- PLANOS -->
-        <section class="section" id="planos" aria-label="Planos">
-            <div class="sectionHeader">
-                <div>
-                    <h2>Planos e valores</h2>
-                    <p>
-                        Todos os planos incluem: gestão de clientes, contratos e prazos; alertas automáticos; auditoria
-                        (logs);
-                        relatórios e exportação (PDF/Excel). Abaixo estão os diferenciais operacionais de cada plano.
-                    </p>
-                </div>
-                <div class="pill">Implantação (única): <b>R$ 1.000</b></div>
-            </div>
-
-            <!-- Valores (ajuste fino para refletir personalização + administração + backups) -->
-            <div class="planCards">
-                <article class="plan">
-                    <h3>Essencial</h3>
-                    <div class="price"><b>R$ 249</b><span>/ mês</span></div>
-                    <p>Plano padrão do sistema, sem personalização visual.</p>
-
-                    <ul class="check">
-                        <li><i>✓</i> <strong>Funcionalidades completas</strong> (alertas, relatórios, exportação
-                            PDF/Excel)</li>
-                        <li><i>✓</i> <strong>Até 5 usuários</strong></li>
-                        <li><i>✓</i> <strong>Administração de usuários pelo cliente</strong></li>
-                        <li><i>✓</i> <strong>Estética padrão JuridicPro</strong> (cores e logo do sistema)</li>
-                        <li><i>✓</i> Ambiente: multi-tenant padrão</li>
-                        <li><i>✓</i> Backup: diário (global do projeto)</li>
-                        <li><i>✓</i> Suporte: operacional</li>
-                        <li><i>✓</i> SLA: até 24h úteis</li>
-                    </ul>
-                </article>
-
-                <article class="plan featured">
-                    <div class="badge">Pro</div>
-                    <h3>Pro</h3>
-                    <div class="price"><b>R$ 409</b><span>/ mês</span></div>
-                    <p>Plano com identidade visual do cliente e administração centralizada do sistema.</p>
-
-                    <ul class="check">
-                        <li><i>✓</i> <strong>Funcionalidades completas</strong> (alertas, relatórios, exportação
-                            PDF/Excel)</li>
-                        <li><i>✓</i> <strong>Usuários ilimitados</strong></li>
-                        <li><i>✓</i> <strong>Administração do sistema</strong>: gestão de usuários feita por mim</li>
-                        <li><i>✓</i> <strong>Personalização visual</strong>: cores + logo do cliente (sem mudança de
-                            layout)</li>
-                        <li><i>✓</i> Ambiente: multi-tenant controlado (monitoramento e operação por tenant)</li>
-                        <li><i>✓</i> Execução de alertas: múltiplas janelas por dia</li>
-                        <li><i>✓</i> <strong>Backup exclusivo do cliente</strong>: 2x ao mês (quinzenal)</li>
-                        <li><i>✓</i> <strong>Relatório mensal de uso</strong> (usuários, contratos, prazos, alertas,
-                            evolução)</li>
-                        <li><i>✓</i> Suporte: operacional + evolutivo</li>
-                        <li><i>✓</i> SLA: até 8h úteis</li>
-                    </ul>
-
-                    <p class="note">
-                        Restauração a partir do backup exclusivo: realizada mediante análise técnica do cenário.
-                    </p>
-                </article>
-
-                <article class="plan">
-                    <h3>Enterprise</h3>
-                    <div class="price"><b>R$ 659</b><span>/ mês</span></div>
-                    <p>Plano com ambiente dedicado e personalização conforme necessidade do cliente.</p>
-
-                    <ul class="check">
-                        <li><i>✓</i> <strong>Funcionalidades completas</strong> (alertas, relatórios, exportação
-                            PDF/Excel)</li>
-                        <li><i>✓</i> <strong>Usuários ilimitados</strong></li>
-                        <li><i>✓</i> <strong>Administração do sistema</strong>: gestão de usuários feita por mim</li>
-                        <li><i>✓</i> <strong>Personalização avançada</strong>: estética conforme preferência, com
-                            possibilidade de ajustes de layout</li>
-                        <li><i>✓</i> <strong>Ambiente exclusivo</strong> (projeto Supabase dedicado: banco e storage
-                            isolados)</li>
-                        <li><i>✓</i> Execução de alertas: dedicada (rotina exclusiva)</li>
-                        <li><i>✓</i> <strong>Backup individual contínuo</strong> + opção de restauração por data (sob
-                            demanda)</li>
-                        <li><i>✓</i> <strong>Relatório mensal</strong> (uso) + relatório técnico (saúde/erros/consumo
-                            quando aplicável)</li>
-                        <li><i>✓</i> Suporte: técnico dedicado</li>
-                        <li><i>✓</i> SLA: até 2h úteis</li>
-                    </ul>
-                </article>
-            </div>
-
-            <div class="hr"></div>
-
-            <h2>Comparativo final</h2>
-            <table aria-label="Comparativo de planos">
-                <thead>
-                    <tr>
-                        <th style="width:34%;">Item</th>
-                        <th>Essencial</th>
-                        <th>Pro</th>
-                        <th>Enterprise</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td><b>Funcionalidades do sistema</b><br><span style="color:var(--muted-2)">Clientes, contratos,
-                                prazos, filtros, dashboard, relatórios, exportação, logs, alertas</span></td>
-                        <td class="yes">✅ Todas</td>
-                        <td class="yes">✅ Todas</td>
-                        <td class="yes">✅ Todas</td>
-                    </tr>
-                    <tr>
-                        <td><b>Usuários</b></td>
-                        <td><b>Até 5</b></td>
-                        <td><b>Ilimitados</b></td>
-                        <td><b>Ilimitados</b></td>
-                    </tr>
-                    <tr>
-                        <td><b>Administração de usuários</b></td>
-                        <td>Cliente</td>
-                        <td><b>Feita por mim</b></td>
-                        <td><b>Feita por mim</b></td>
-                    </tr>
-                    <tr>
-                        <td><b>Personalização visual</b></td>
-                        <td>Padrão (JuridicPro)</td>
-                        <td><b>Cores + logo do cliente</b></td>
-                        <td><b>Conforme preferência</b> (inclui ajustes de layout quando necessário)</td>
-                    </tr>
-                    <tr>
-                        <td><b>Ambiente</b></td>
-                        <td>Multi-tenant padrão</td>
-                        <td><b>Multi-tenant controlado</b></td>
-                        <td><b>Exclusivo (dedicado)</b></td>
-                    </tr>
-                    <tr>
-                        <td><b>Execução de alertas</b></td>
-                        <td>Diária</td>
-                        <td><b>Múltiplas vezes ao dia</b></td>
-                        <td><b>Dedicada</b></td>
-                    </tr>
-                    <tr>
-                        <td><b>Monitoramento</b></td>
-                        <td>Geral</td>
-                        <td><b>Por tenant</b></td>
-                        <td><b>Exclusivo</b></td>
-                    </tr>
-                    <tr>
-                        <td><b>Backup</b></td>
-                        <td>Diário (global)</td>
-                        <td><b>Global + exclusivo (2x/mês)</b></td>
-                        <td><b>Individual contínuo</b></td>
-                    </tr>
-                    <tr>
-                        <td><b>Restauração</b></td>
-                        <td>Global</td>
-                        <td>Sob análise técnica</td>
-                        <td><b>Sob demanda</b></td>
-                    </tr>
-                    <tr>
-                        <td><b>Relatório de uso</b></td>
-                        <td class="no">—</td>
-                        <td><b>Mensal</b></td>
-                        <td><b>Mensal + técnico</b></td>
-                    </tr>
-                    <tr>
-                        <td><b>Tipo de suporte</b></td>
-                        <td>Operacional</td>
-                        <td><b>Operacional + evolutivo</b></td>
-                        <td><b>Técnico dedicado</b></td>
-                    </tr>
-                    <tr>
-                        <td><b>SLA</b></td>
-                        <td>24h úteis</td>
-                        <td>8h úteis</td>
-                        <td>2h úteis</td>
-                    </tr>
-                </tbody>
-            </table>
-
-            <p class="note">
-                Implantação é cobrada à parte (pagamento único). Detalhamento na seção “Implantação”.
+            <p class="subtitle">
+                Reduza atrasos, elimine falhas operacionais e ganhe controle real sobre seus processos.
             </p>
-        </section>
+        </div>
 
-        <!-- IMPLANTAÇÃO -->
-        <section class="section" id="implantacao" aria-label="Implantação">
-            <div class="sectionHeader">
-                <div>
-                    <h2>Implantação (taxa única) — R$ 1.000</h2>
-                    <p>
-                        Implantação é o processo de configuração inicial do ambiente do cliente e padronização mínima
-                        para iniciar operação.
-                        O valor é único por cliente e cobre as etapas abaixo.
-                    </p>
-                </div>
-                <div class="pill">Pagamento único</div>
+        <div class="card">
+            <h3>O que você resolve com o DocsFlow</h3>
+            <ul>
+                <li>Perda de prazos e vencimentos</li>
+                <li>Falta de controle de contratos</li>
+                <li>Processos manuais e desorganizados</li>
+                <li>Dificuldade em auditar ações</li>
+            </ul>
+        </div>
+
+    </section>
+
+    <!-- SOBRE -->
+    <section id="sobre" class="card" style="margin-top:16px;">
+        <h2>Uma plataforma criada para operação real</h2>
+
+        <p class="subtitle">
+            O DocsFlow System organiza documentos, contratos e fluxos de trabalho em um único ambiente,
+            trazendo clareza, automação e controle operacional.
+        </p>
+
+        <div class="grid">
+            <div class="box">
+                <h3>Centralização</h3>
+                <p>Tudo em um único sistema, sem planilhas ou controles paralelos.</p>
             </div>
 
-            <div class="grid3">
-                <div class="mini">
-                    <b>1) Setup do ambiente</b>
-                    <p>Criação/ativação do tenant, configuração base e validação de acesso ao sistema.</p>
-                </div>
-                <div class="mini">
-                    <b>2) Parametrização inicial</b>
-                    <p>Configuração de padrões operacionais (status, regras de vigência, parâmetros de alertas e
-                        validações).</p>
-                </div>
-                <div class="mini">
-                    <b>3) Configuração de alertas</b>
-                    <p>Ativação da rotina de alertas, regras de vencimento e testes de processamento.</p>
-                </div>
-                <div class="mini">
-                    <b>4) Estrutura de usuários</b>
-                    <p>Criação dos usuários iniciais e definição de acessos conforme o plano contratado.</p>
-                </div>
-                <div class="mini">
-                    <b>5) Treinamento rápido</b>
-                    <p>Orientação prática de uso (cadastro, filtros, relatórios, exportação e rotina diária).</p>
-                </div>
-                <div class="mini">
-                    <b>6) Validação final</b>
-                    <p>Checklist de funcionamento, registro de pendências e entrega do ambiente pronto para uso.</p>
-                </div>
+            <div class="box">
+                <h3>Automação</h3>
+                <p>Alertas e processos automáticos para evitar falhas humanas.</p>
             </div>
 
-            <p class="note">
-                Observação: importação/migração em massa de dados (planilhas antigas, sistemas anteriores) pode ser
-                tratada como serviço adicional,
-                dependendo do volume e do formato.
-            </p>
-        </section>
+            <div class="box">
+                <h3>Escalável</h3>
+                <p>Preparado para crescer junto com a operação da sua empresa.</p>
+            </div>
+        </div>
+    </section>
 
-        <!-- FUNCIONALIDADES -->
-        <section class="section" id="funcionalidades" aria-label="Funcionalidades">
-            <div class="sectionHeader">
-                <div>
-                    <h2>Funcionalidades atuais (escopo implementado)</h2>
-                    <p>Lista técnica do que está disponível hoje no sistema.</p>
-                </div>
+    <!-- SEGURANÇA -->
+    <section id="seguranca" class="card" style="margin-top:16px;">
+        <h2>Segurança e controle</h2>
+
+        <p class="subtitle">
+            O sistema garante organização, rastreabilidade e proteção dos dados da sua operação.
+        </p>
+
+        <ul>
+            <li>Controle de acesso por usuário</li>
+            <li>Registro de atividades (auditoria)</li>
+            <li>Separação de dados por empresa</li>
+            <li>Backup e integridade das informações</li>
+        </ul>
+    </section>
+
+    <!-- PLANOS -->
+    <section id="planos" class="card" style="margin-top:16px;">
+        <h2>Planos</h2>
+
+        <p class="subtitle">
+            Escolha o nível de operação ideal para sua empresa.
+        </p>
+
+        <div class="plans">
+
+            <div class="plan">
+                <h3>Essencial</h3>
+                <div class="price">R$ 249/mês</div>
+                <ul>
+                    <li>Sistema completo pronto para uso</li>
+                    <li>Até 5 usuários</li>
+                    <li>Suporte operacional</li>
+                    <li>Ambiente padrão</li>
+                </ul>
             </div>
 
-            <details open>
-                <summary>🔐 1) Autenticação e Sessão</summary>
-                <ul class="bullets">
-                    <li>Login e logout de usuário</li>
-                    <li>Armazenamento de sessão via <code>local_store</code></li>
-                    <li>Controle de navegação por rota (<code>page.route</code>)</li>
-                    <li>Cache de views para performance</li>
-                    <li>Registro de logs de ações (ex.: ativar/desativar contrato)</li>
+            <div class="plan featured">
+                <h3>Pro</h3>
+                <div class="price">R$ 409/mês</div>
+                <ul>
+                    <li>Usuários ilimitados</li>
+                    <li>Identidade visual personalizada</li>
+                    <li>Suporte assistido</li>
+                    <li>Relatórios mensais</li>
                 </ul>
-            </details>
-
-            <details>
-                <summary>📊 2) Dashboard</summary>
-                <ul class="bullets">
-                    <li>Página inicial do sistema</li>
-                    <li>Navegação principal e integração com layout padrão (header + sidebar)</li>
-                </ul>
-            </details>
-
-            <details>
-                <summary>👥 3) Gestão de Clientes</summary>
-                <ul class="bullets">
-                    <li>Cadastro, edição e exclusão com cascade nos contratos</li>
-                    <li>Associação automática cliente ↔ contrato</li>
-                    <li>Uso de sigla para geração automática de apelido do contrato</li>
-                </ul>
-            </details>
-
-            <details>
-                <summary>📄 4) Gestão de Contratos (módulo principal)</summary>
-                <ul class="bullets">
-                    <li><b>Cadastro:</b> cliente, apelido automático (ex.: ABC0001), valor, cláusulas, responsável</li>
-                    <li><b>Datas:</b> data inicial (calendário pt-BR), data de assinatura, vigência em meses</li>
-                    <li><b>Cálculos:</b> termo final automático, validação de datas e vigência numérica</li>
-                    <li><b>Edição:</b> valor, responsável, assinatura, vigência; recálculo automático do termo final
-                    </li>
-                    <li><b>Status:</b> ativo/inativo (soft delete) + registro de log de auditoria</li>
-                    <li><b>Visualização:</b> dados do contrato + lista de prazos vinculados</li>
-                </ul>
-            </details>
-
-            <details>
-                <summary>⏳ 5) Gestão de Prazos</summary>
-                <ul class="bullets">
-                    <li>Prazos vinculados ao contrato: meses (offset), vencimento, observação, data de criação</li>
-                    <li>Data de assinatura herdável (quando aplicável)</li>
-                    <li>Adicionar, editar e remover (desativação lógica)</li>
-                    <li>Cálculo automático da data pelo número de meses</li>
-                    <li>Sincronização meses ↔ calendário</li>
-                </ul>
-            </details>
-
-            <details>
-                <summary>🔎 6) Sistema de Filtros Avançados</summary>
-                <ul class="bullets">
-                    <li>Busca por: ID, apelido, cliente, valor, responsável, assinatura, início, vigência, fim, status
-                    </li>
-                    <li>Filtro por período (início/fim) com regras de intervalo</li>
-                    <li>Filtro por status: ativos, inativos, todos</li>
-                </ul>
-            </details>
-
-            <details>
-                <summary>📋 7) Tabela de Contratos</summary>
-                <ul class="bullets">
-                    <li>Exibe: ID, apelido, cliente, responsável, valor, assinatura, início, vigência, fim, status,
-                        ações</li>
-                    <li>Zebra striping, bordas laterais, paginação (10 por página), visual compacto corporativo</li>
-                    <li>Ícones de status e ações rápidas: ver, editar, desativar/reativar</li>
-                </ul>
-            </details>
-
-            <details>
-                <summary>📑 8) Relatórios + Exportações</summary>
-                <ul class="bullets">
-                    <li>Tela dedicada de relatórios</li>
-                    <li>Exportação de relatórios (PDF/Excel)</li>
-                    <li>Base para evolução de relatórios (ex.: incluir vencimento do prazo futuramente)</li>
-                </ul>
-            </details>
-
-            <details>
-                <summary>🚨 9) Alertas automáticos</summary>
-                <ul class="bullets">
-                    <li>Alertas automáticos por vencimento de prazo</li>
-                    <li>Base preparada para tipos de notificação e layout de e-mail (evolução)</li>
-                </ul>
-            </details>
-
-            <details>
-                <summary>🗂️ 10) Banco de Dados (Supabase)</summary>
-                <ul class="bullets">
-                    <li>Tabelas principais: <code>contratos</code>, <code>prazos</code> e clientes</li>
-                    <li>Relacionamentos: FK contrato → cliente; FK prazo → contrato; delete cascade</li>
-                    <li>Soft delete (ativo/inativo) para segurança operacional</li>
-                    <li>Base preparada para multi-tenant + políticas de acesso no banco (RLS)</li>
-                </ul>
-            </details>
-
-            <details>
-                <summary>🎨 11) UI / UX</summary>
-                <ul class="bullets">
-                    <li>Sidebar corporativa azul escuro com destaque de página ativa</li>
-                    <li>Header com avatar, layout minimalista e inputs compactos</li>
-                    <li>Navegação por rota + cache de views (performance)</li>
-                </ul>
-            </details>
-
-            <details>
-                <summary>🧠 12) Inteligência de Negócio</summary>
-                <ul class="bullets">
-                    <li>Geração automática incremental de apelido</li>
-                    <li>Cálculo automático de datas por meses + termo final</li>
-                    <li>Filtros combináveis e auditoria de ações</li>
-                </ul>
-            </details>
-        </section>
-
-        <!-- FAQ -->
-        <section class="section" id="faq" aria-label="FAQ">
-            <div class="sectionHeader">
-                <div>
-                    <h2>FAQ</h2>
-                    <p>Respostas objetivas sobre planos, personalização e backups.</p>
-                </div>
             </div>
 
-            <details>
-                <summary>O JuridicPro é “LGPD compliant”?</summary>
-                <p>
-                    O JuridicPro é desenvolvido com base em boas práticas de segurança e governança para apoiar uma
-                    operação
-                    alinhada à LGPD. A conformidade final depende das regras, do uso e dos processos do cliente
-                    (controlador),
-                    além das configurações e políticas aplicadas no ambiente.
-                </p>
-            </details>
-
-            <details>
-                <summary>O que muda na estética entre os planos?</summary>
-                <p>
-                    No Essencial, o sistema é entregue com a estética padrão do JuridicPro. No Pro, é aplicada
-                    personalização visual (cores e logo do cliente),
-                    sem alterações de layout. No Enterprise, a personalização é conforme preferência do cliente e pode
-                    incluir alterações de layout quando necessário.
-                </p>
-            </details>
-
-            <details>
-                <summary>Como funciona o isolamento de dados por cliente?</summary>
-                <p>
-                    A arquitetura é preparada para multi-tenant: cada registro pertence a um tenant e as consultas são
-                    filtradas.
-                    Além disso, podem ser aplicadas políticas de acesso no banco (RLS) para reforçar a separação lógica.
-                </p>
-            </details>
-
-            <details>
-                <summary>Como funciona o backup exclusivo do Pro?</summary>
-                <p>
-                    Além do backup diário global do projeto, é gerado um backup lógico do cliente (tenant) duas vezes ao
-                    mês (quinzenal),
-                    armazenado separadamente. A restauração é realizada mediante análise técnica do cenário.
-                </p>
-            </details>
-
-            <details>
-                <summary>O que está incluso na implantação (R$ 1.000)?</summary>
-                <p>
-                    Setup do ambiente, parametrização inicial, configuração de alertas, criação de usuários iniciais
-                    conforme plano e treinamento rápido.
-                    O detalhamento está na seção “Implantação”.
-                </p>
-            </details>
-        </section>
-
-        <!-- CONTATO -->
-        <section class="section" id="contato" aria-label="Contato">
-            <div class="sectionHeader">
-                <div>
-                    <h2>Contato</h2>
-                    <p>Atualize os links abaixo com seus dados reais.</p>
-                </div>
+            <div class="plan">
+                <h3>Enterprise</h3>
+                <div class="price">R$ 659/mês</div>
+                <ul>
+                    <li>Ambiente dedicado</li>
+                    <li>Personalização completa</li>
+                    <li>Suporte prioritário</li>
+                    <li>Relatórios avançados</li>
+                </ul>
             </div>
 
-            <div class="grid3">
-                <div class="mini">
-                    <b>WhatsApp</b>
-                    <p>
-                        <a href="https://wa.me/5521988366768" target="_blank" rel="noopener">Falar no WhatsApp</a>
-                    </p>
-                </div>
-                <div class="mini">
-                    <b>E-mail</b>
-                    <p>
-                        <a href="mailto:renanvfsantos@gmail.com">renanvfsantos@gmail.com</a>
-                    </p>
-                </div>
-                <div class="mini">
-                    <b>Instagram</b>
-                    <p>
-                        <a href="https://instagram.com/renanv.dev" target="_blank" rel="noopener">@renanv.dev</a>
-                    </p>
-                </div>
-            </div>
-        </section>
+        </div>
+    </section>
 
-        <!-- FOOTER -->
-        <footer class="footer" aria-label="Rodapé">
-            <div>© <span id="year"></span> JuridicPro — Todos os direitos reservados.</div>
-            <div class="footerLinks">
-                <a href="#sobre">Sobre</a>
-                <a href="#seguranca">Segurança & LGPD</a>
-                <a href="#planos">Planos</a>
-                <a href="#implantacao">Implantação</a>
-                <a href="#funcionalidades">Funcionalidades</a>
-                <a href="#faq">FAQ</a>
-                <a href="#contato">Contato</a>
-            </div>
-        </footer>
-    </main>
+    <!-- CONTATO -->
+    <section id="contato" class="card" style="margin-top:16px;">
+        <h2>Contato</h2>
 
-    <script>
-        document.getElementById("year").textContent = new Date().getFullYear();
-    </script>
+        <p class="subtitle">Solicite uma demonstração ou proposta personalizada.</p>
+
+        <p><b>Email:</b> contato@docsflow.com</p>
+        <p><b>WhatsApp:</b> disponível sob consulta</p>
+    </section>
+
+    <footer>
+        © 2026 DocsFlow System — Todos os direitos reservados
+    </footer>
+
+</main>
+
 </body>
-
 </html>
