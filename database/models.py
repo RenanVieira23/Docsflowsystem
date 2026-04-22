@@ -713,18 +713,13 @@ def delete_contrato_parte(cp_id: int):
 # 👥 GESTÃO DE USUÁRIOS (admin do tenant)
 # ======================================================
 
+from database.supabase_client import supabase_admin
 
-from database.supabase_client import supabase, supabase_admin
 
-
-# ------------------------------
-# LISTAR USUÁRIOS DO TENANT
-# ------------------------------
 def get_usuarios_do_tenant(tenant_id: str) -> list:
-    """Lista usuários do tenant (ADMIN bypass RLS)."""
+    """Lista todos os usuários do tenant — usa supabase_admin para bypassar RLS."""
     try:
-        client = supabase_admin or supabase
-
+        client = supabase_admin if supabase_admin else supabase
         resp = (
             client.table("usuarios")
             .select("*")
@@ -732,41 +727,93 @@ def get_usuarios_do_tenant(tenant_id: str) -> list:
             .order("usuario")
             .execute()
         )
-
-        return resp.data or []
-
-    except Exception as e:
-        print(f"❌ Erro ao listar usuários tenant: {e}")
-        return []
-
-
-# ------------------------------
-# LISTAR GLOBAL
-# ------------------------------
-def get_usuarios() -> list:
-    try:
-        resp = (
-            supabase_admin.table("usuarios")
-            .select("*")
-            .order("usuario")
-            .execute()
-        )
-        return resp.data or []
-
+        return resp.data if resp.data else []
     except Exception as e:
         print(f"❌ Erro ao listar usuários: {e}")
         return []
 
 
-# ------------------------------
-# UPDATE USUÁRIO
-# ------------------------------
-def update_usuario_admin(usuario_id: int, dados: dict) -> dict:
+def get_usuarios() -> list:
+    """Lista todos os usuários (sem filtro de tenant)."""
     try:
-        senha = dados.pop("senha", None)
+        resp = (
+            supabase.table("usuarios")
+            .select("*")
+            .order("usuario")
+            .execute()
+        )
+        return resp.data if resp.data else []
+    except Exception as e:
+        print(f"❌ Erro ao listar usuários: {e}")
+        return []
+
+
+def criar_usuario_admin(
+    email: str,
+    senha: str,
+    nome_usuario: str,
+    tenant_id: str,
+    role: str = "user",
+    is_admin: bool = False,
+) -> dict:
+
+    if not supabase_admin:
+        return {"_error": "SUPABASE_SERVICE_KEY não configurada no .env"}
+
+    email = email.strip().lower()
+    nome_usuario = nome_usuario.strip()
+
+    try:
+        # 1️⃣ cria no AUTH
+        res = supabase_admin.auth.admin.create_user({
+            "email": email,
+            "password": senha,
+            "email_confirm": True,
+            "user_metadata": {"display_name": nome_usuario},
+        })
+
+        auth_uid = str(res.user.id)
+
+        # 2️⃣ cria perfil (AGORA CORRETO)
+        perfil = {
+            "usuario": nome_usuario,
+            "email": email,
+            "auth_uid": auth_uid,
+            "tenant_id": tenant_id,
+            "role": role,
+            "is_admin": is_admin,
+        }
 
         resp = (
-            supabase_admin.table("usuarios")
+            supabase_admin
+            .table("usuarios")
+            .insert(perfil)
+            .execute()
+        )
+
+        return resp.data[0]
+
+    except Exception as e:
+        try:
+            supabase_admin.auth.admin.delete_user(auth_uid)
+        except:
+            pass
+
+        return {"_error": str(e)}
+
+
+def update_usuario_admin(usuario_id: int, dados: dict) -> dict:
+    """
+    Atualiza nome/role/is_admin na tabela usuarios.
+    Se 'senha' estiver em dados, atualiza também no Auth.
+    """
+
+    senha = dados.pop("senha", None)
+
+    try:
+        resp = (
+            supabase_admin
+            .table("usuarios")
             .update(dados)
             .eq("id", usuario_id)
             .execute()
@@ -774,39 +821,46 @@ def update_usuario_admin(usuario_id: int, dados: dict) -> dict:
 
         perfil = resp.data[0] if resp.data else {}
 
-        # senha auth
-        if senha and perfil.get("auth_uid"):
-            supabase_admin.auth.admin.update_user_by_id(
-                perfil["auth_uid"],
-                {"password": senha}
-            )
-
-        return perfil
-
     except Exception as e:
         return {"_error": str(e)}
 
+    # Atualiza senha no Auth se fornecida
+    if senha and perfil.get("auth_uid"):
+        try:
+            supabase_admin.auth.admin.update_user_by_id(
+                perfil["auth_uid"],
+                {"password": senha},
+            )
+        except Exception as e:
+            print(f"⚠️ Erro ao atualizar senha: {e}")
 
-# ------------------------------
-# DELETE USUÁRIO
-# ------------------------------
+    return perfil
+
+
 def delete_usuario_admin(usuario_id: int) -> bool:
+    """
+    Remove usuário da tabela usuarios e do Auth.
+    """
+
     try:
         resp = (
-            supabase_admin.table("usuarios")
+            supabase_admin
+            .table("usuarios")
             .select("auth_uid")
             .eq("id", usuario_id)
             .single()
             .execute()
         )
 
-        auth_uid = resp.data.get("auth_uid")
+        auth_uid = resp.data.get("auth_uid") if resp.data else None
 
+        # remove da tabela (admin bypass)
         supabase_admin.table("usuarios") \
             .delete() \
             .eq("id", usuario_id) \
             .execute()
 
+        # remove auth
         if auth_uid:
             supabase_admin.auth.admin.delete_user(auth_uid)
 
@@ -815,7 +869,6 @@ def delete_usuario_admin(usuario_id: int) -> bool:
     except Exception as e:
         print(f"❌ Erro ao deletar usuário: {e}")
         return False
-
 # ======================================================
 # 🔗 VÍNCULOS (tipos de partes)
 # ======================================================
