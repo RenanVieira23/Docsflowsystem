@@ -710,16 +710,21 @@ def delete_contrato_parte(cp_id: int):
         return False
 
 # ======================================================
-# 👥 GESTÃO DE USUÁRIOS (admin do tenant)
+# 👥 GESTÃO DE USUÁRIOS (MULTI-TENANT CONSISTENTE)
 # ======================================================
 
-from database.supabase_client import supabase_admin
+from database.supabase_client import supabase, supabase_admin
 
+
+# ======================================================
+# LISTAR USUÁRIOS DO TENANT
+# ======================================================
 
 def get_usuarios_do_tenant(tenant_id: str) -> list:
-    """Lista todos os usuários do tenant — usa supabase_admin para bypassar RLS."""
+    """Lista usuários do tenant (bypass RLS com admin)."""
     try:
-        client = supabase_admin if supabase_admin else supabase
+        client = supabase_admin or supabase
+
         resp = (
             client.table("usuarios")
             .select("*")
@@ -727,26 +732,40 @@ def get_usuarios_do_tenant(tenant_id: str) -> list:
             .order("usuario")
             .execute()
         )
-        return resp.data if resp.data else []
+
+        return resp.data or []
+
     except Exception as e:
         print(f"❌ Erro ao listar usuários: {e}")
         return []
 
+
+# ======================================================
+# LISTAR GLOBAL (DEBUG / ADMIN MASTER)
+# ======================================================
 
 def get_usuarios() -> list:
     """Lista todos os usuários (sem filtro de tenant)."""
     try:
+        client = supabase_admin or supabase
+
         resp = (
-            supabase.table("usuarios")
+            client.table("usuarios")
             .select("*")
             .order("usuario")
             .execute()
         )
-        return resp.data if resp.data else []
+
+        return resp.data or []
+
     except Exception as e:
         print(f"❌ Erro ao listar usuários: {e}")
         return []
 
+
+# ======================================================
+# CRIAR USUÁRIO (AUTH + PERFIL TENANT)
+# ======================================================
 
 def criar_usuario_admin(
     email: str,
@@ -758,13 +777,15 @@ def criar_usuario_admin(
 ) -> dict:
 
     if not supabase_admin:
-        return {"_error": "SUPABASE_SERVICE_KEY não configurada no .env"}
+        return {"_error": "SUPABASE_SERVICE_KEY não configurada"}
 
     email = email.strip().lower()
     nome_usuario = nome_usuario.strip()
 
+    auth_uid = None
+
     try:
-        # 1️⃣ cria no AUTH
+        # 1️⃣ AUTH
         res = supabase_admin.auth.admin.create_user({
             "email": email,
             "password": senha,
@@ -774,7 +795,7 @@ def criar_usuario_admin(
 
         auth_uid = str(res.user.id)
 
-        # 2️⃣ cria perfil (AGORA CORRETO)
+        # 2️⃣ PERFIL (TENANT ISOLADO)
         perfil = {
             "usuario": nome_usuario,
             "email": email,
@@ -791,21 +812,26 @@ def criar_usuario_admin(
             .execute()
         )
 
-        return resp.data[0]
+        return resp.data[0] if resp.data else perfil
 
     except Exception as e:
+        # rollback auth se falhar banco
         try:
-            supabase_admin.auth.admin.delete_user(auth_uid)
+            if auth_uid:
+                supabase_admin.auth.admin.delete_user(auth_uid)
         except:
             pass
 
         return {"_error": str(e)}
 
 
+# ======================================================
+# UPDATE USUÁRIO
+# ======================================================
+
 def update_usuario_admin(usuario_id: int, dados: dict) -> dict:
     """
-    Atualiza nome/role/is_admin na tabela usuarios.
-    Se 'senha' estiver em dados, atualiza também no Auth.
+    Atualiza usuário + senha opcional no Auth.
     """
 
     senha = dados.pop("senha", None)
@@ -824,7 +850,7 @@ def update_usuario_admin(usuario_id: int, dados: dict) -> dict:
     except Exception as e:
         return {"_error": str(e)}
 
-    # Atualiza senha no Auth se fornecida
+    # senha auth
     if senha and perfil.get("auth_uid"):
         try:
             supabase_admin.auth.admin.update_user_by_id(
@@ -837,9 +863,13 @@ def update_usuario_admin(usuario_id: int, dados: dict) -> dict:
     return perfil
 
 
+# ======================================================
+# DELETE USUÁRIO
+# ======================================================
+
 def delete_usuario_admin(usuario_id: int) -> bool:
     """
-    Remove usuário da tabela usuarios e do Auth.
+    Remove usuário do tenant + Auth.
     """
 
     try:
@@ -854,7 +884,7 @@ def delete_usuario_admin(usuario_id: int) -> bool:
 
         auth_uid = resp.data.get("auth_uid") if resp.data else None
 
-        # remove da tabela (admin bypass)
+        # remove perfil
         supabase_admin.table("usuarios") \
             .delete() \
             .eq("id", usuario_id) \
