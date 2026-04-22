@@ -893,7 +893,26 @@ def delete_vinculo(vinculo_id: int) -> bool:
         print(f"❌ Erro ao deletar vínculo: {e}")
         return False
 
+def update_vinculo(vinculo_id: int, dados: dict) -> dict:
+    try:
+        tipo = (dados.get("tipo") or "").strip()
 
+        if not tipo:
+            return {"_error": "Tipo inválido."}
+
+        resp = (
+            supabase
+            .table("vinculos")
+            .update({"tipo": tipo})
+            .eq("id", vinculo_id)
+            .execute()
+        )
+
+        return resp.data[0] if resp.data else {}
+
+    except Exception as e:
+        print(f"❌ Erro ao atualizar vínculo: {e}")
+        return {"_error": str(e)}
 # ======================================================
 # 📄 TIPOS DE CONTRATOS
 # ======================================================

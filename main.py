@@ -218,8 +218,9 @@ if __name__ == "__main__":
     upload_dir = _os.environ.get("FLET_UPLOAD_DIR", "/tmp/flet_uploads")
     _os.makedirs(upload_dir, exist_ok=True)
 
-    ft.app(
-        target=main,
+    ft.run(
+        main,
         port=port,
         upload_dir=upload_dir,
+        view=ft.AppView.WEB_BROWSER,
     )

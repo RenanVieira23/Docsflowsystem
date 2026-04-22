@@ -146,7 +146,7 @@ class AppLayout(ft.Column):
 
                     self._menu_btn("Dashboard", "/dashboard"),
                     self._menu_btn("Clientes", "/clientes"),
-                    self._menu_btn("Tipos", "/tipos"),
+                    self._menu_btn("Tipos", "/tipos-partes"),
                     self._menu_btn("Partes", "/partes"),
                     self._menu_btn("Contratos", "/contratos"),
                     self._menu_btn("Painel de Alertas", "/alertas"),
