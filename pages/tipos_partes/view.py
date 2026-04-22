@@ -2,83 +2,96 @@ import flet as ft
 import asyncio
 
 from database.models import (
-    get_vinculos,
-    add_vinculo,
-    update_vinculo,
-    delete_vinculo,
+    get_tipos_partes,
+    add_tipo_parte,
+    update_tipo_parte,
+    delete_tipo_parte,
 )
 
+
 # ======================================================
-# TAB CRUD GENÉRICA
+# VIEW
 # ======================================================
 
-class CrudTiposTab(ft.Column):
+class TiposPartesView(ft.Column):
 
-    def __init__(
-        self,
-        page: ft.Page,
-        titulo: str,
-        descricao: str,
-        get_func,
-        add_func,
-        update_func,
-        delete_func,
-        campo_nome="tipo",
-    ):
+    def __init__(self, page: ft.Page):
         super().__init__(expand=True, spacing=12)
 
-        self.page = page
-        self.get_func = get_func
-        self.add_func = add_func
-        self.update_func = update_func
-        self.delete_func = delete_func
-        self.campo_nome = campo_nome
+        self.app_page = page
+        self.tipos = []
 
-        self.dados = []
-
-        # ---------------------
+        # =========================
         # LOADING
-        # ---------------------
-        self.loading = ft.ProgressRing(visible=False, width=20, height=20)
+        # =========================
+        self.loading = ft.ProgressRing(
+            visible=False, width=22, height=22, stroke_width=2
+        )
 
-        # ---------------------
-        # INPUT
-        # ---------------------
-        self.tf_novo = ft.TextField(label=f"Novo {titulo}", width=340)
+        # =========================
+        # CAMPO NOVO TIPO (inline)
+        # =========================
+        self.tf_novo = ft.TextField(
+            label="Nome do tipo (ex: RÃ©u, SÃ³cio, Fiador...)",
+            width=340,
+        )
 
-        self.btn_add = ft.FilledButton(
+        self.btn_adicionar = ft.FilledButton(
             "Adicionar",
+            height=38,
             on_click=self.adicionar,
         )
 
+        # =========================
+        # LISTA
+        # =========================
         self.lista = ft.Column(spacing=6)
 
-        # ---------------------
+        # =========================
         # LAYOUT
-        # ---------------------
+        # =========================
         self.controls.extend([
+
             ft.Row(
                 [
-                    ft.Text(titulo, size=22, weight=ft.FontWeight.BOLD),
+                    ft.Text(
+                        "Tipos de Partes",
+                        size=22,
+                        weight=ft.FontWeight.BOLD,
+                    ),
                     self.loading,
                 ],
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             ),
 
-            ft.Text(descricao, color=ft.Colors.GREY_600),
+            ft.Text(
+                "Cadastre os tipos de vÃ­nculo que uma parte pode ter em um contrato "
+                "(ex: RÃ©u, Autor, SÃ³cio, Fiador, Testemunha...)",
+                color=ft.Colors.GREY_600,
+                size=13,
+            ),
 
             ft.Divider(),
 
+            # ADICIONAR NOVO
             ft.Container(
                 padding=16,
                 border_radius=10,
                 bgcolor=ft.Colors.BLUE_50,
                 border=ft.border.all(1, ft.Colors.BLUE_100),
-                content=ft.Row([self.tf_novo, self.btn_add]),
+                content=ft.Row(
+                    [
+                        self.tf_novo,
+                        self.btn_adicionar,
+                    ],
+                    spacing=10,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
             ),
 
             ft.Divider(),
 
+            # LISTA DE TIPOS
             ft.Container(
                 expand=True,
                 content=ft.Column(
@@ -89,231 +102,252 @@ class CrudTiposTab(ft.Column):
             ),
         ])
 
-        self.page.run_task(self._carregar)
+        self.app_page.run_task(self._carregar)
+
 
     # ======================================================
-    # LOAD
+    # CARREGAR
     # ======================================================
 
     async def _carregar(self):
 
         self.loading.visible = True
-        self.page.update()
+        self.app_page.update()
 
         try:
-            dados = await asyncio.to_thread(self.get_func)
+            dados = await asyncio.to_thread(get_tipos_partes)
         except Exception as ex:
-            print("Erro:", ex)
+            print("Erro tipos_partes:", ex)
             dados = []
 
-        self.dados = dados or []
-
+        self.tipos = dados or []
         self.loading.visible = False
-        self._renderizar()
+        self._renderizar_lista()
 
-    # ======================================================
 
-    def _renderizar(self):
+    def _renderizar_lista(self):
 
         self.lista.controls.clear()
 
-        if not self.dados:
+        if not self.tipos:
             self.lista.controls.append(
                 ft.Text(
-                    "Nenhum registro cadastrado.",
-                    italic=True,
+                    "Nenhum tipo cadastrado ainda.",
                     color=ft.Colors.GREY_500,
+                    italic=True,
                 )
             )
 
-        for item in self.dados:
-            self._add_item(item)
+        for t in self.tipos:
+            self._adicionar_item_lista(t)
 
         self.lista.update()
 
-    # ======================================================
 
-    def _add_item(self, item):
+    def _adicionar_item_lista(self, tipo: dict):
 
-        tf = ft.TextField(
-            value=item.get(self.campo_nome, ""),
-            read_only=True,
+        tf_edit = ft.TextField(
+            value=tipo.get("nome", ""),
             dense=True,
             width=280,
+            read_only=True,
         )
 
-        btn_edit = ft.IconButton(
-            ft.Icons.EDIT_OUTLINED,
-            on_click=lambda e: self._editar(row),
+        btn_editar = ft.IconButton(
+            icon=ft.Icons.EDIT_OUTLINED,
+            tooltip="Editar",
+            icon_size=18,
+            on_click=lambda e, t=tipo, tf=tf_edit, b=None: self._modo_edicao(t, tf, row),
         )
 
-        btn_save = ft.IconButton(
-            ft.Icons.CHECK,
+        btn_salvar = ft.IconButton(
+            icon=ft.Icons.CHECK,
+            tooltip="Salvar",
+            icon_size=18,
             visible=False,
             icon_color=ft.Colors.GREEN,
-            on_click=lambda e: self._salvar(item, tf),
+            on_click=lambda e, t=tipo, tf=tf_edit: self._salvar_edicao(t, tf, row),
         )
 
-        btn_cancel = ft.IconButton(
-            ft.Icons.CLOSE,
+        btn_cancelar = ft.IconButton(
+            icon=ft.Icons.CLOSE,
+            tooltip="Cancelar",
+            icon_size=18,
             visible=False,
-            on_click=lambda e: self._cancelar(item, tf, row),
+            icon_color=ft.Colors.GREY,
+            on_click=lambda e, t=tipo, tf=tf_edit: self._cancelar_edicao(t, tf, row),
         )
 
-        btn_delete = ft.IconButton(
-            ft.Icons.DELETE_OUTLINE,
+        btn_excluir = ft.IconButton(
+            icon=ft.Icons.DELETE_OUTLINE,
+            tooltip="Excluir",
+            icon_size=18,
             icon_color=ft.Colors.RED_400,
-            on_click=lambda e: self._excluir(item),
+            on_click=lambda e, t=tipo: self._confirmar_exclusao(t),
         )
 
         row = ft.Container(
-            padding=10,
+            padding=ft.padding.symmetric(vertical=4, horizontal=12),
             border_radius=8,
-            border=ft.border.all(1, ft.Colors.GREY_200),
             bgcolor=ft.Colors.WHITE,
+            border=ft.border.all(1, ft.Colors.GREY_200),
             content=ft.Row(
                 [
-                    ft.Icon(ft.Icons.LABEL_OUTLINE),
-                    tf,
-                    btn_edit,
-                    btn_save,
-                    btn_cancel,
-                    btn_delete,
-                ]
+                    ft.Icon(ft.Icons.LABEL_OUTLINE, size=16, color=ft.Colors.BLUE_400),
+                    tf_edit,
+                    btn_editar,
+                    btn_salvar,
+                    btn_cancelar,
+                    btn_excluir,
+                ],
+                spacing=4,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
         )
 
+        # Guarda referÃªncias nos botÃµes para manipular o row depois
         row.data = {
-            "tf": tf,
-            "edit": btn_edit,
-            "save": btn_save,
-            "cancel": btn_cancel,
-            "delete": btn_delete,
+            "tipo": tipo,
+            "tf": tf_edit,
+            "btn_editar": btn_editar,
+            "btn_salvar": btn_salvar,
+            "btn_cancelar": btn_cancelar,
+            "btn_excluir": btn_excluir,
         }
 
         self.lista.controls.append(row)
 
+
     # ======================================================
-    # CRUD
+    # ADICIONAR
     # ======================================================
 
     def adicionar(self, e):
 
         nome = (self.tf_novo.value or "").strip()
+
         if not nome:
+            self.app_page.snack_bar = ft.SnackBar(ft.Text("Digite o nome do tipo."))
+            self.app_page.snack_bar.open = True
+            self.app_page.update()
             return
 
-        self.add_func(nome)
+        try:
+            novo = add_tipo_parte(nome)
+        except Exception as ex:
+            self.app_page.snack_bar = ft.SnackBar(ft.Text(f"Erro: {ex}"))
+            self.app_page.snack_bar.open = True
+            self.app_page.update()
+            return
 
         self.tf_novo.value = ""
-        self.page.run_task(self._carregar)
-        self._toast("Adicionado com sucesso.")
+        self.app_page.run_task(self._carregar)
 
-    # ---------------------
+        self.app_page.snack_bar = ft.SnackBar(ft.Text(f"Tipo '{nome}' adicionado."))
+        self.app_page.snack_bar.open = True
+        self.app_page.update()
 
-    def _editar(self, row):
+
+    # ======================================================
+    # EDIÃ‡ÃƒO INLINE
+    # ======================================================
+
+    def _modo_edicao(self, tipo, tf, row):
         d = row.data
-        d["tf"].read_only = False
-        d["edit"].visible = False
-        d["save"].visible = True
-        d["cancel"].visible = True
-        d["delete"].visible = False
-        self.page.update()
+        tf.read_only = False
+        tf.focus()
+        d["btn_editar"].visible = False
+        d["btn_salvar"].visible = True
+        d["btn_cancelar"].visible = True
+        d["btn_excluir"].visible = False
+        self.app_page.update()
 
-    # ---------------------
 
-    def _salvar(self, item, tf):
-
+    def _salvar_edicao(self, tipo, tf, row):
         nome = (tf.value or "").strip()
+
         if not nome:
             return
 
-        self.update_func(item["id"], {"tipo": nome})
+        try:
+            update_tipo_parte(tipo["id"], {"nome": nome})
+        except Exception as ex:
+            self.app_page.snack_bar = ft.SnackBar(ft.Text(f"Erro: {ex}"))
+            self.app_page.snack_bar.open = True
+            self.app_page.update()
+            return
 
-        self.page.run_task(self._carregar)
-        self._toast("Atualizado.")
+        self.app_page.run_task(self._carregar)
 
-    # ---------------------
+        self.app_page.snack_bar = ft.SnackBar(ft.Text("Tipo atualizado."))
+        self.app_page.snack_bar.open = True
+        self.app_page.update()
 
-    def _cancelar(self, item, tf, row):
 
+    def _cancelar_edicao(self, tipo, tf, row):
         d = row.data
-
-        tf.value = item.get(self.campo_nome, "")
+        tf.value = tipo.get("nome", "")
         tf.read_only = True
-
-        d["edit"].visible = True
-        d["save"].visible = False
-        d["cancel"].visible = False
-        d["delete"].visible = True
-
-        self.page.update()
-
-    # ---------------------
-
-    def _excluir(self, item):
-
-        self.delete_func(item["id"])
-
-        self.page.run_task(self._carregar)
-        self._toast("Excluído.")
-
-    # ---------------------
-
-    def _toast(self, msg):
-        self.page.snack_bar = ft.SnackBar(ft.Text(msg))
-        self.page.snack_bar.open = True
-        self.page.update()
+        d["btn_editar"].visible = True
+        d["btn_salvar"].visible = False
+        d["btn_cancelar"].visible = False
+        d["btn_excluir"].visible = True
+        self.app_page.update()
 
 
-# ======================================================
-# ⭐ MANTÉM NOME ANTIGO (COMPATIBILIDADE TOTAL)
-# ======================================================
+    # ======================================================
+    # EXCLUSÃƒO
+    # ======================================================
 
-class TiposPartesView(ft.Column):
+    def _confirmar_exclusao(self, tipo):
 
-    def __init__(self, page: ft.Page):
-        super().__init__(expand=True)
-
-        self.controls.append(
-            ft.Tabs(
-                expand=True,
-                tabs=[
-                    ft.Tab(
-                        text="Tipos de Partes ",
-                        content=CrudTiposTab(
-                            page,
-                            titulo="Vínculos",
-                            descricao="Tipos de vínculo que uma parte possui no contrato.",
-                            get_func=get_vinculos,
-                            add_func=add_vinculo,
-                            update_func=update_vinculo,
-                            delete_func=delete_vinculo,
-                        ),
-                    ),
-
-                    ft.Tab(
-                        text="Tipos de Contrato",
-                        content=ft.Container(
-                            padding=20,
-                            content=ft.Text("Estrutura pronta."),
-                        ),
-                    ),
-
-                    ft.Tab(
-                        text="Tipos de Prazos",
-                        content=ft.Container(
-                            padding=20,
-                            content=ft.Text("Estrutura futura."),
-                        ),
-                    ),
-                ],
-            )
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Confirmar exclusÃ£o"),
+            content=ft.Text(
+                f"Excluir o tipo '{tipo['nome']}'?\n\n"
+                "Contratos que jÃ¡ usam este tipo nÃ£o serÃ£o afetados."
+            ),
+            actions=[
+                ft.TextButton(
+                    "Cancelar",
+                    on_click=lambda e: self._fechar(dialog),
+                ),
+                ft.FilledButton(
+                    "Excluir",
+                    style=ft.ButtonStyle(bgcolor=ft.Colors.RED),
+                    on_click=lambda e: self._excluir(tipo, dialog),
+                ),
+            ],
         )
 
+        self.app_page.overlay.append(dialog)
+        dialog.open = True
+        self.app_page.update()
+
+
+    def _excluir(self, tipo, dialog):
+        try:
+            delete_tipo_parte(tipo["id"])
+        except Exception as ex:
+            self.app_page.snack_bar = ft.SnackBar(ft.Text(f"Erro: {ex}"))
+            self.app_page.snack_bar.open = True
+
+        dialog.open = False
+        self.app_page.run_task(self._carregar)
+
+        self.app_page.snack_bar = ft.SnackBar(ft.Text(f"Tipo '{tipo['nome']}' excluÃ­do."))
+        self.app_page.snack_bar.open = True
+        self.app_page.update()
+
+
+    def _fechar(self, dialog):
+        dialog.open = False
+        self.app_page.update()
+
 
 # ======================================================
-# EXPORT (NOME ANTIGO)
+# EXPORT
 # ======================================================
 
 def tipos_partes_view(page: ft.Page):
