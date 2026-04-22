@@ -21,109 +21,118 @@ class AdminView(ft.Column):
         self.app_page = page
         self.usuarios = []
 
-        # Tenant do admin logado
         self.tenant_id = page.local_store.get("tenant_id")
         self.is_global_admin = page.local_store.get("is_global_admin", False)
 
-        # =========================
-        # LOADING
-        # =========================
-        self.loading = ft.ProgressRing(
-            visible=False, width=20, height=20, stroke_width=2
-        )
+        # 🔥 ID DO USUÁRIO LOGADO (TABELA usuarios.id)
+        self.usuario_logado_id = page.local_store.get("usuario_id")
 
-        # =========================
-        # TABELA
-        # =========================
+        self.loading = ft.ProgressRing(visible=False, width=20, height=20, stroke_width=2)
+
         self.tabela = ft.DataTable(
-            column_spacing=16,
-            heading_row_height=38,
-            data_row_min_height=36,
-            divider_thickness=0.5,
             columns=[
                 ft.DataColumn(ft.Text("ID")),
-                ft.DataColumn(ft.Text("Nome (usuário)")),
+                ft.DataColumn(ft.Text("Nome")),
                 ft.DataColumn(ft.Text("E-mail")),
                 ft.DataColumn(ft.Text("Role")),
                 ft.DataColumn(ft.Text("Admin")),
                 ft.DataColumn(ft.Text("Ações")),
             ],
-            rows=[],
+            rows=[]
         )
 
-        # =========================
-        # LAYOUT
-        # =========================
         self.controls.extend([
-
             ft.Row(
                 [
                     ft.Text("Gestão de Usuários", size=22, weight=ft.FontWeight.BOLD),
-                    ft.Row(
-                        [
-                            ft.FilledButton(
-                                "Novo Usuário",
-                                icon=ft.Icons.PERSON_ADD,
-                                height=36,
-                                on_click=self.abrir_criar,
-                            ),
-                            ft.OutlinedButton(
-                                "Atualizar",
-                                height=36,
-                                on_click=self.recarregar,
-                            ),
-                            self.loading,
-                        ],
-                        spacing=8,
-                    ),
+                    ft.Row([
+                        ft.FilledButton("Novo Usuário", on_click=self.abrir_criar),
+                        ft.OutlinedButton("Atualizar", on_click=self.recarregar),
+                        self.loading,
+                    ])
                 ],
-                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-            ),
-
-            ft.Text(
-                "Gerencie os usuários do sistema. "
-                "Somente administradores têm acesso a esta tela.",
-                color=ft.Colors.GREY_600,
-                size=13,
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN
             ),
 
             ft.Divider(),
 
             ft.Container(
                 expand=True,
-                content=ft.Column(
-                    [self.tabela],
-                    scroll=ft.ScrollMode.AUTO,
-                    expand=True,
-                ),
-            ),
+                content=self.tabela
+            )
         ])
 
         self.app_page.run_task(self._carregar)
 
-    # ======================================================
-    # CARREGAR
-    # ======================================================
-
+    # =========================
     async def _carregar(self):
         self.loading.visible = True
         self.app_page.update()
 
         try:
             if self.tenant_id:
-                dados = await asyncio.to_thread(
-                    get_usuarios_do_tenant, self.tenant_id
+                self.usuarios = await asyncio.to_thread(
+                    get_usuarios_do_tenant,
+                    self.tenant_id
                 )
             else:
-                dados = await asyncio.to_thread(get_usuarios)
-        except Exception as ex:
-            print("Erro admin usuários:", ex)
-            dados = []
+                self.usuarios = await asyncio.to_thread(get_usuarios)
 
-        self.usuarios = dados or []
+        except Exception as e:
+            print("Erro:", e)
+            self.usuarios = []
+
         self.loading.visible = False
-        self._renderizar_tabela()
+        self._render()
 
+    # =========================
+    def _render(self):
+        self.tabela.rows.clear()
+
+        for u in self.usuarios:
+
+            eh_voce = (u["id"] == self.usuario_logado_id)
+
+            self.tabela.rows.append(
+                ft.DataRow(cells=[
+
+                    ft.DataCell(ft.Text(str(u["id"]))),
+                    ft.DataCell(ft.Text(u["usuario"])),
+
+                    ft.DataCell(ft.Text(u.get("email") or "-")),
+
+                    ft.DataCell(ft.Text(u["role"])),
+
+                    ft.DataCell(
+                        ft.Icon(
+                            ft.Icons.VERIFIED if u.get("is_admin") else ft.Icons.CLOSE,
+                            color=ft.Colors.AMBER if u.get("is_admin") else ft.Colors.GREY
+                        )
+                    ),
+
+                    ft.DataCell(
+                        ft.Row([
+                            ft.TextButton(
+                                "Editar",
+                                on_click=lambda e, uu=u: self.editar(uu)
+                            ),
+
+                            ft.Text("(você)" if eh_voce else ""),
+
+                            ft.TextButton(
+                                "Excluir",
+                                style=ft.ButtonStyle(color=ft.Colors.RED),
+                                disabled=eh_voce,
+                                on_click=lambda e, uu=u: self.confirmar_exclusao(uu)
+                            ) if not eh_voce else ft.Container()
+                        ])
+                    )
+                ])
+            )
+
+        self.tabela.update()
+
+    # =========================
     def recarregar(self, e=None):
         self.app_page.run_task(self._carregar)
 
