@@ -21,10 +21,11 @@ def _snack(page, msg):
 class AlertasCadastroView(ft.Column):
 
     def __init__(self, page: ft.Page):
-        # scroll=AUTO no Column raiz para que o painel de prazo seja sempre visível
         super().__init__(expand=True, spacing=12, scroll=ft.ScrollMode.AUTO)
+
         self.app_page     = page
         self.tenant_id    = page.local_store.get("tenant_id") if hasattr(page, "local_store") else None
+
         self.contratos    = []
         self.filtrados    = []
         self.clientes_map = {}
@@ -39,7 +40,6 @@ class AlertasCadastroView(ft.Column):
 
         self.lista_contratos = ft.Column(spacing=4, scroll=ft.ScrollMode.AUTO)
 
-        # Painel de prazo (fica visível após selecionar contrato)
         self.painel_prazo = ft.Container(visible=False)
 
         self.controls.extend([
@@ -60,7 +60,9 @@ class AlertasCadastroView(ft.Column):
             ft.Container(
                 height=260,
                 border=ft.border.all(1, ft.Colors.BLACK12),
-                border_radius=10, bgcolor=ft.Colors.WHITE, padding=8,
+                border_radius=10,
+                bgcolor=ft.Colors.WHITE,
+                padding=8,
                 content=self.lista_contratos,
             ),
 
@@ -69,26 +71,26 @@ class AlertasCadastroView(ft.Column):
 
         page.run_task(self._carregar)
 
-    # ── carregamento ────────────────────────────────────────────
-
     async def _carregar(self):
         self.loading.visible = True
         self.app_page.update()
+
         try:
             contratos = await asyncio.to_thread(get_contratos, self.tenant_id)
-            clientes  = await asyncio.to_thread(get_clientes,  self.tenant_id)
+            clientes  = await asyncio.to_thread(get_clientes, self.tenant_id)
         except Exception as ex:
             print("Erro alertas_cadastro:", ex)
             contratos = clientes = []
-        self.contratos    = contratos or []
+
+        self.contratos = contratos or []
         self.clientes_map = {c["id"]: c["nome"] for c in (clientes or [])}
+
         self.loading.visible = False
         self._filtrar()
 
-    # ── filtro ──────────────────────────────────────────────────
-
     def _filtrar(self, e=None):
         termo = (self.tf_busca.value or "").lower().strip()
+
         if termo:
             self.filtrados = [
                 c for c in self.contratos
@@ -99,6 +101,7 @@ class AlertasCadastroView(ft.Column):
             ]
         else:
             self.filtrados = list(self.contratos)
+
         self._render_lista()
 
     def _render_lista(self):
@@ -106,37 +109,36 @@ class AlertasCadastroView(ft.Column):
 
         if not self.filtrados:
             self.lista_contratos.controls.append(
-                ft.Text("Nenhum contrato encontrado.", color=ft.Colors.GREY_500, italic=True, size=13))
-            self.lista_contratos.update()
+                ft.Text("Nenhum contrato encontrado.", color=ft.Colors.GREY_500)
+            )
+            self.app_page.update()
             return
 
         for c in self.filtrados[:50]:
-            sel      = bool(self.selecionado and c["id"] == self.selecionado["id"])
+            sel = bool(self.selecionado and c["id"] == self.selecionado["id"])
             cli_nome = self.clientes_map.get(c.get("cliente_id"), "-")
 
-            row = ft.Container(
-                padding=ft.padding.symmetric(vertical=6, horizontal=10),
-                border_radius=8,
-                bgcolor=ft.Colors.BLUE_50 if sel else ft.Colors.GREY_50,
-                border=ft.border.all(1, ft.Colors.BLUE_300 if sel else ft.Colors.GREY_200),
-                content=ft.Row([
-                    ft.Column([
-                        ft.Text(c.get("nome", ""), weight=ft.FontWeight.W_500, size=13),
-                        ft.Text(f"{cli_nome}  •  Resp: {c.get('responsavel') or '-'}",
-                                size=11, color=ft.Colors.GREY_600),
-                    ], spacing=2, expand=True),
-                    ft.FilledTonalButton(
-                        "Ver / + Prazo", height=30,
-                        on_click=lambda e, cc=c: self._selecionar(cc),
-                    ),
-                ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                on_click=lambda e, cc=c: self._selecionar(cc),
+            self.lista_contratos.controls.append(
+                ft.Container(
+                    padding=ft.padding.symmetric(vertical=6, horizontal=10),
+                    border_radius=8,
+                    bgcolor=ft.Colors.BLUE_50 if sel else ft.Colors.GREY_50,
+                    border=ft.border.all(1, ft.Colors.BLUE_300 if sel else ft.Colors.GREY_200),
+                    content=ft.Row([
+                        ft.Column([
+                            ft.Text(c.get("nome", ""), size=13),
+                            ft.Text(cli_nome, size=11, color=ft.Colors.GREY_600),
+                        ], expand=True),
+
+                        ft.FilledTonalButton(
+                            "Ver / + Prazo",
+                            on_click=lambda e, cc=c: self._selecionar(cc),
+                        ),
+                    ]),
+                )
             )
-            self.lista_contratos.controls.append(row)
 
-        self.lista_contratos.update()
-
-    # ── selecionar contrato e construir painel ───────────────────
+        self.app_page.update()
 
     def _selecionar(self, contrato):
         self.selecionado = contrato
@@ -144,127 +146,123 @@ class AlertasCadastroView(ft.Column):
         self._build_painel(contrato)
 
     def _build_painel(self, contrato):
-        tid     = self.tenant_id
-        tipos_p = []
-        try:
-            tipos_p = get_tipos_prazos_db(tid) or []
-        except: pass
 
-        # ── prazos existentes ──
+        tipos_p = get_tipos_prazos_db(self.tenant_id) or []
+
+        # =============================
+        # CAMPOS
+        # =============================
+        tf_dt = ft.TextField(label="Calendário", read_only=True)
+        tf_ob = ft.TextField(label="Observação")
+
+        dd_tp = ft.Dropdown(
+            label="Tipo",
+            options=[ft.dropdown.Option(t["nome"]) for t in tipos_p],
+        )
+
+        lbl_err = ft.Text("", color=ft.Colors.RED)
+
         prazos_col = ft.Column(spacing=4)
+
+        # =============================
+        # FUNÇÕES AUXILIARES
+        # =============================
+
+        def _limpar_campos():
+            tf_dt.value = ""
+            tf_ob.value = ""
+            dd_tp.value = None
+            lbl_err.value = ""
 
         def _refresh_prazos():
             prazos_col.controls.clear()
-            try:
-                prazos = get_prazos_por_contrato(contrato["id"]) or []
-            except: prazos = []
+
+            prazos = get_prazos_por_contrato(contrato["id"]) or []
 
             if not prazos:
                 prazos_col.controls.append(
-                    ft.Text("Nenhum prazo cadastrado.", color=ft.Colors.GREY_500, italic=True, size=12))
+                    ft.Text("Nenhum prazo cadastrado.", color=ft.Colors.GREY_500)
+                )
             else:
                 for p in prazos:
                     prazos_col.controls.append(
                         ft.Container(
-                            padding=ft.padding.symmetric(vertical=4, horizontal=8),
-                            border_radius=6,
-                            bgcolor=ft.Colors.GREY_50,
-                            border=ft.border.all(1, ft.Colors.GREY_200),
                             content=ft.Row([
-                                ft.Icon(ft.Icons.CALENDAR_TODAY, size=13, color=ft.Colors.BLUE_400),
-                                ft.Text(data_db_para_br(p.get("data_vencimento")),
-                                        size=12, weight=ft.FontWeight.W_500),
-                                ft.Text(f"— {p.get('observacao') or ''}", size=12,
-                                        color=ft.Colors.GREY_600),
-                            ], spacing=6),
+                                ft.Icon(ft.Icons.CALENDAR_TODAY, size=13),
+                                ft.Text(data_db_para_br(p.get("data_vencimento"))),
+                                ft.Text(p.get("observacao") or ""),
+                            ])
                         )
                     )
-            prazos_col.update()
-
-        _refresh_prazos()
-
-        # ── campos novo prazo ──
-        tf_dt = ft.TextField(label="Data do prazo (DD/MM/AAAA)", width=200, read_only=True)
-        tf_ob = ft.TextField(label="Observação", width=320)
-        dd_tp = ft.Dropdown(
-            label="Tipo de prazo", width=180,
-            options=[ft.dropdown.Option(t["nome"]) for t in tipos_p],
-            hint_text="Selecione..." if tipos_p else "Cadastre em Tipos",
-        )
-        lbl_err = ft.Text("", color=ft.Colors.RED_700, size=12)
 
         def cal(e):
-            calendario_ptbr(self.app_page, on_select=lambda d: (
-                setattr(tf_dt, "value", d.strftime("%d/%m/%Y")),
-                self.app_page.update(),
-            ))
+            calendario_ptbr(
+                self.app_page,
+                on_select=lambda d: (
+                    setattr(tf_dt, "value", d.strftime("%d/%m/%Y")),
+                    self.app_page.update(),
+                ),
+            )
+
+        # =============================
+        # SALVAR PRAZO
+        # =============================
 
         def salvar(e):
-            if not tf_dt.value:
-                lbl_err.value = "Selecione a data do prazo."
-                self.app_page.update(); return
-            dt_db = data_br_para_db(tf_dt.value)
-            if not dt_db:
-                lbl_err.value = "Data inválida."
-                self.app_page.update(); return
-            try:
-                add_prazo(
-                    contrato_id=contrato["id"],
-                    meses=None,
-                    observacao=tf_ob.value or "",
-                    data_criacao=contrato.get("data_inicial"),
-                    data_vencimento=dt_db,
-                )
-            except Exception as ex:
-                lbl_err.value = f"Erro: {ex}"
-                self.app_page.update(); return
 
-            tf_dt.value = ""; tf_ob.value = ""; dd_tp.value = None; lbl_err.value = ""
+            if not tf_dt.value:
+                lbl_err.value = "Selecione data"
+                self.app_page.update()
+                return
+
+            add_prazo(
+                contrato_id=contrato["id"],
+                meses=None,
+                observacao=tf_ob.value,
+                data_criacao=contrato.get("data_inicial"),
+                data_vencimento=data_br_para_db(tf_dt.value),
+                tenant_id=self.tenant_id,
+            )
+
             _refresh_prazos()
-            _snack(self.app_page, f"Prazo adicionado ao contrato {contrato.get('nome')}!")
+            _limpar_campos()
+
+            _snack(self.app_page, "Prazo adicionado!")
             self.app_page.update()
 
-        def cancelar(e):
+        def fechar(e):
             self.painel_prazo.visible = False
             self.selecionado = None
             self._render_lista()
             self.app_page.update()
 
-        self.painel_prazo.content = ft.Container(
-            padding=16, border_radius=12,
-            bgcolor=ft.Colors.WHITE,
-            border=ft.border.all(1, ft.Colors.BLUE_200),
-            content=ft.Column([
-                ft.Row([
-                    ft.Icon(ft.Icons.DESCRIPTION_OUTLINED, color=ft.Colors.BLUE_600),
-                    ft.Text(f"{contrato.get('nome')} — Prazos",
-                            weight=ft.FontWeight.W_600, size=14, expand=True),
-                    ft.TextButton("Fechar", on_click=cancelar),
-                ], spacing=8),
+        # =============================
+        # PRIMEIRO CARREGAMENTO
+        # =============================
 
-                ft.Divider(height=1),
+        _refresh_prazos()
 
-                # Prazos existentes
-                ft.Text("Prazos cadastrados:", size=12, weight=ft.FontWeight.W_500,
-                        color=ft.Colors.GREY_700),
-                prazos_col,
+        # =============================
+        # UI
+        # =============================
 
-                ft.Divider(height=1),
+        self.painel_prazo.content = ft.Column([
+            ft.Text(f"{contrato['nome']} — Prazos"),
 
-                # Novo prazo
-                ft.Text("Adicionar prazo:", size=12, weight=ft.FontWeight.W_500,
-                        color=ft.Colors.GREY_700),
-                ft.Row([
-                    ft.OutlinedButton("📅 Selecionar data", height=36, on_click=cal),
-                    tf_dt, dd_tp,
-                ], spacing=10, wrap=True),
-                ft.Row([tf_ob], spacing=10),
-                lbl_err,
-                ft.Row([
-                    ft.FilledButton("Salvar prazo", on_click=salvar),
-                ], spacing=12),
-            ], spacing=10),
-        )
+            prazos_col,
+
+            ft.Row([
+                ft.OutlinedButton("Data", on_click=cal),
+                tf_dt,
+                dd_tp,
+            ]),
+
+            tf_ob,
+            lbl_err,
+
+            ft.FilledButton("Salvar", on_click=salvar),
+            ft.TextButton("Fechar", on_click=fechar),
+        ])
 
         self.painel_prazo.visible = True
         self.app_page.update()
