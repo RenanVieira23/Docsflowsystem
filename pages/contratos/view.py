@@ -1,3 +1,16 @@
+"""
+pages/contratos/view.py
+========================
+View de Contratos — multi-tenant.
+
+Correções desta versão:
+  - tenant_id obtido com fallback (page.local_store -> page.session) e
+    revalidado a cada carregamento.
+  - SEM url_target em qualquer botão.
+  - Diálogo "Desativar" usa page.open()/page.close() com fallback.
+  - Handlers do calendário em funções nomeadas (sem lambda+tuple+setattr).
+"""
+
 import flet as ft
 import asyncio
 
@@ -15,6 +28,45 @@ from database.models import (
 from pages.contratos.form import novo_contrato_dialog
 
 
+def _get_tenant(page):
+    tid = None
+    try:
+        if hasattr(page, "local_store") and page.local_store:
+            tid = page.local_store.get("tenant_id")
+    except Exception:
+        tid = None
+    if not tid:
+        try:
+            tid = page.session.get("tenant_id")
+        except Exception:
+            pass
+    return tid
+
+
+def _abrir_dialog(page, dialog):
+    if dialog not in page.overlay:
+        page.overlay.append(dialog)
+    if hasattr(page, "open"):
+        try:
+            page.open(dialog)
+            return
+        except Exception:
+            pass
+    dialog.open = True
+    page.update()
+
+
+def _fechar_dialog(page, dialog):
+    if hasattr(page, "close"):
+        try:
+            page.close(dialog)
+            return
+        except Exception:
+            pass
+    dialog.open = False
+    page.update()
+
+
 # ======================================================
 # VIEW
 # ======================================================
@@ -24,6 +76,7 @@ class ContratosView(ft.Column):
         super().__init__(expand=True, spacing=0)
 
         self.app_page = page
+        self.tenant_id = _get_tenant(page)
 
         self.ui_h = 36
         self.ui_btn_h = 34
@@ -41,7 +94,6 @@ class ContratosView(ft.Column):
         self.status_value = "ativos"
 
         # Ordenação
-        # Chaves: ID, Apelido, Cliente(*), Responsável, Valor, Assinatura, Início, Vig., Fim, Status, Ações
         self.sort = SortState(default_col=0)
         self.sort.set_callback(self._render_tabela)
         self.sort_chaves = [
@@ -80,30 +132,44 @@ class ContratosView(ft.Column):
             height=self.ui_h, text_size=self.ui_font,
         )
 
+        def _set_inicio(d):
+            self.filtro_inicio.value = d.strftime("%d/%m/%Y")
+            self.aplicar_filtros()
+            self.app_page.update()
+
+        def _set_fim(d):
+            self.filtro_fim.value = d.strftime("%d/%m/%Y")
+            self.aplicar_filtros()
+            self.app_page.update()
+
         def escolher_inicio(e):
-            calendario_ptbr(self.app_page, on_select=lambda d: (
-                setattr(self.filtro_inicio, "value", d.strftime("%d/%m/%Y")),
-                self.aplicar_filtros(), self.app_page.update(),
-            ))
+            calendario_ptbr(self.app_page, on_select=_set_inicio)
 
         def escolher_fim(e):
-            calendario_ptbr(self.app_page, on_select=lambda d: (
-                setattr(self.filtro_fim, "value", d.strftime("%d/%m/%Y")),
-                self.aplicar_filtros(), self.app_page.update(),
-            ))
+            calendario_ptbr(self.app_page, on_select=_set_fim)
 
-        self.btn_inicio = ft.TextButton("📅", tooltip="Selecionar início", on_click=escolher_inicio,
-            style=ft.ButtonStyle(padding=ft.padding.all(4)))
-        self.btn_fim = ft.TextButton("📅", tooltip="Selecionar fim", on_click=escolher_fim,
-            style=ft.ButtonStyle(padding=ft.padding.all(4)))
-        self.btn_limpar_periodo = ft.TextButton("Limpar período",
-            on_click=lambda e: (
-                setattr(self.filtro_inicio, "value", ""),
-                setattr(self.filtro_fim, "value", ""),
-                self.aplicar_filtros(), self.app_page.update(),
-            ),
-            style=ft.ButtonStyle(padding=ft.padding.symmetric(horizontal=10, vertical=6)))
-        self.btn_aplicar = ft.FilledButton("Aplicar", height=self.ui_btn_h, on_click=self.aplicar_click)
+        def _limpar_periodo(e):
+            self.filtro_inicio.value = ""
+            self.filtro_fim.value = ""
+            self.aplicar_filtros()
+            self.app_page.update()
+
+        self.btn_inicio = ft.TextButton(
+            "📅", tooltip="Selecionar início", on_click=escolher_inicio,
+            style=ft.ButtonStyle(padding=ft.padding.all(4)),
+        )
+        self.btn_fim = ft.TextButton(
+            "📅", tooltip="Selecionar fim", on_click=escolher_fim,
+            style=ft.ButtonStyle(padding=ft.padding.all(4)),
+        )
+        self.btn_limpar_periodo = ft.TextButton(
+            "Limpar período",
+            on_click=_limpar_periodo,
+            style=ft.ButtonStyle(padding=ft.padding.symmetric(horizontal=10, vertical=6)),
+        )
+        self.btn_aplicar = ft.FilledButton(
+            "Aplicar", height=self.ui_btn_h, on_click=self.aplicar_click
+        )
 
         # =========================
         # STATUS (pílulas)
@@ -243,7 +309,7 @@ class ContratosView(ft.Column):
         self.app_page.run_task(self._carregar_dados)
 
     # ======================================================
-    # STATUS UI (pílulas)
+    # STATUS UI
     # ======================================================
 
     def _set_status(self, val: str):
@@ -295,24 +361,24 @@ class ContratosView(ft.Column):
     def aplicar_click(self, e):
         self.aplicar_filtros()
 
-# ======================================================
-# CARREGAMENTO (MULTI-TENANT)
-# ======================================================
+    # ======================================================
+    # CARREGAMENTO
+    # ======================================================
 
     async def _carregar_dados(self):
         self.loading.visible = True
         self.app_page.update()
 
         try:
-            tenant_id = self.app_page.local_store.get("tenant_id")
+            self.tenant_id = _get_tenant(self.app_page)
 
-            if not tenant_id:
+            if not self.tenant_id:
                 print("❌ tenant_id não encontrado")
                 contratos = []
                 clientes = []
             else:
-                contratos = await asyncio.to_thread(get_contratos, tenant_id)
-                clientes  = await asyncio.to_thread(get_clientes, tenant_id)
+                contratos = await asyncio.to_thread(get_contratos, self.tenant_id)
+                clientes  = await asyncio.to_thread(get_clientes,  self.tenant_id)
 
         except Exception as ex:
             print("Erro contratos:", ex)
@@ -324,7 +390,6 @@ class ContratosView(ft.Column):
 
         self.loading.visible = False
         self.aplicar_filtros()
-
 
     def recarregar(self, e=None):
         self.app_page.run_task(self._carregar_dados)
@@ -367,7 +432,6 @@ class ContratosView(ft.Column):
                 return termo in texto
             contratos = list(filter(match, contratos))
 
-        # Injeta campo _cliente para permitir ordenar por nome do cliente
         for c in contratos:
             c["_cliente"] = self.clientes_map.get(c.get("cliente_id"), "")
 
@@ -468,7 +532,17 @@ class ContratosView(ft.Column):
 
     async def _log_async(self, acao, nome):
         try:
-            usuario = self.app_page.local_store.get("usuario_id")
+            usuario = None
+            try:
+                if hasattr(self.app_page, "local_store") and self.app_page.local_store:
+                    usuario = self.app_page.local_store.get("usuario_id")
+            except Exception:
+                usuario = None
+            if not usuario:
+                try:
+                    usuario = self.app_page.session.get("usuario_id")
+                except Exception:
+                    usuario = None
             if usuario:
                 await asyncio.to_thread(registrar_log, usuario, acao, nome)
         except Exception:
@@ -480,13 +554,11 @@ class ContratosView(ft.Column):
             title=ft.Text("Confirmar"),
             content=ft.Text(f"Desativar o contrato {contrato.get('nome')}?"),
             actions=[
-                ft.TextButton("Cancelar",  on_click=lambda e: self.fechar(dialog)),
+                ft.TextButton("Cancelar",   on_click=lambda e: _fechar_dialog(self.app_page, dialog)),
                 ft.FilledButton("Desativar", on_click=lambda e: self.desativar(contrato, dialog)),
             ],
         )
-        self.app_page.overlay.append(dialog)
-        dialog.open = True
-        self.app_page.update()
+        _abrir_dialog(self.app_page, dialog)
 
     async def _desativar_async(self, contrato, dialog):
         try:
@@ -494,7 +566,7 @@ class ContratosView(ft.Column):
             await self._log_async("Desativou contrato", contrato["nome"])
         except Exception as ex:
             print("Erro desativar:", ex)
-        dialog.open = False
+        _fechar_dialog(self.app_page, dialog)
         self.recarregar()
 
     def desativar(self, contrato, dialog):
@@ -510,10 +582,6 @@ class ContratosView(ft.Column):
 
     def reativar(self, contrato):
         self.app_page.run_task(self._reativar_async, contrato)
-
-    def fechar(self, dialog):
-        dialog.open = False
-        self.app_page.update()
 
 
 # ======================================================

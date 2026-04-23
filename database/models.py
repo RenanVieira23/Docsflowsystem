@@ -529,14 +529,16 @@ def add_anexo(contrato_id, nome_arquivo, arquivo_url=None, arquivo_path=None):
         return None
 
 def get_anexos_por_contrato(contrato_id):
-    try:
-        resp = supabase.table("anexos").select("*").eq("contrato_id", contrato_id).execute()
-        return resp.data if resp.data else []
-    except Exception as e:
-        print(f"❌ Erro ao buscar anexos: {e}")
-        return []
 
+    resp = (
+        supabase
+        .table("anexos")
+        .select("*")
+        .eq("contrato_id", contrato_id)
+        .execute()
+    )
 
+    return resp.data or []
 # ======================================================
 # DASHBOARD / RELATÓRIOS
 # ======================================================
@@ -1088,56 +1090,101 @@ def delete_tipo_prazo_db(tipo_id: int) -> bool:
 
 
 # ======================================================
-# STORAGE — ANEXOS
+# STORAGE PRIVADO "Heringer"
 # ======================================================
-STORAGE_BUCKET = "contratos"
+STORAGE_BUCKET = "Heringer"
 
 
-def _guess_mime(filename: str) -> str:
-    ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
-    mimes = {
-        "pdf": "application/pdf",
-        "doc": "application/msword",
-        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "xls": "application/vnd.ms-excel",
-        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
-        "gif": "image/gif", "webp": "image/webp",
-        "txt": "text/plain", "csv": "text/csv",
-        "zip": "application/zip",
-    }
-    return mimes.get(ext, "application/octet-stream")
+def list_anexos_storage(contrato_id: int):
 
+    pasta = f"contratos/{contrato_id}/anexos"
 
-def upload_anexo(contrato_id: int, nome_arquivo: str, file_bytes: bytes):
     try:
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        storage_path = f"contratos/{contrato_id}/{ts}_{nome_arquivo}"
-        supabase.storage.from_(STORAGE_BUCKET).upload(
-            storage_path, file_bytes,
-            {"content-type": _guess_mime(nome_arquivo), "upsert": "false"},
-        )
-        url = supabase.storage.from_(STORAGE_BUCKET).get_public_url(storage_path)
-        return add_anexo(contrato_id=contrato_id, nome_arquivo=nome_arquivo,
-                         arquivo_url=url, arquivo_path=storage_path)
+        files = supabase.storage.from_(STORAGE_BUCKET).list(pasta)
+
+        print("========== STORAGE DEBUG ==========")
+        print("BUCKET:", STORAGE_BUCKET)
+        print("PASTA:", pasta)
+        print("FILES:", files)
+        print("===================================")
+
+        anexos = []
+
+        for f in files:
+            nome = f.get("name")
+
+            if not nome or nome.startswith("."):
+                continue
+
+            anexos.append({
+                "nome_arquivo": nome,
+                "arquivo_path": f"{pasta}/{nome}",
+            })
+
+        return anexos
+
     except Exception as e:
-        print(f"❌ Erro ao fazer upload de anexo: {e}")
-        return None
+        print("❌ erro list storage:", e)
+        return []
+def upload_anexo_storage(contrato_id, nome_arquivo, file_bytes):
 
+    caminho = f"contratos/{contrato_id}/anexos/{nome_arquivo}"
 
-def delete_anexo(anexo_id: int, arquivo_path: str = None) -> bool:
+    supabase.storage.from_(STORAGE_BUCKET).upload(
+        path=caminho,
+        file=file_bytes,
+        file_options={"upsert": "true"},
+    )
+
+    return {
+        "nome_arquivo": nome_arquivo,
+        "arquivo_path": caminho,
+    }
+
+def delete_anexo_storage(arquivo_path: str) -> bool:
+    """Remove um arquivo do Storage 'Heringer'."""
+    if not arquivo_path:
+        return False
     try:
-        if arquivo_path:
-            try:
-                supabase.storage.from_(STORAGE_BUCKET).remove([arquivo_path])
-            except Exception as se:
-                print(f"⚠️  Storage remove falhou (ignorado): {se}")
-        supabase.table("anexos").delete().eq("id", anexo_id).execute()
+        supabase.storage.from_(STORAGE_BUCKET).remove([arquivo_path])
         return True
     except Exception as e:
-        print(f"❌ Erro ao deletar anexo: {e}")
+        print(f"❌ erro delete_anexo_storage: {e}")
         return False
-    
+
+
+def get_anexo_signed_url(
+    arquivo_path: str,
+    expires_in: int = 3600
+) -> str | None:
+    """
+    Gera URL assinada para bucket privado Supabase Storage.
+    """
+
+    if not arquivo_path:
+        return None
+
+    try:
+        resp = (
+            supabase.storage
+            .from_(STORAGE_BUCKET)
+            .create_signed_url(arquivo_path, expires_in)
+        )
+
+        if isinstance(resp, dict):
+            return (
+                resp.get("signedURL")
+                or resp.get("signed_url")
+                or resp.get("signedUrl")
+                or (resp.get("data") or {}).get("signedURL")
+                or (resp.get("data") or {}).get("signedUrl")
+            )
+
+        return None
+
+    except Exception as e:
+        print(f"❌ erro get_anexo_signed_url: {e}")
+        return None
     # ======================================================
 # TIPOS DE CONTRATO
 # ======================================================
