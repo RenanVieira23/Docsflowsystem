@@ -11,7 +11,7 @@ Correções desta versão (definitiva):
   3. Anexos vindos DIRETO do Storage privado "Heringer" — sem tabela 'anexos'.
      Usa list_anexos_storage / upload_anexo_storage / delete_anexo_storage e
      get_anexo_signed_url (URL assinada com 1h de validade).
-  4. FilePicker único por página, registrado no overlay UMA vez (_get_picker).
+  4. FilePicker único por página, registrado no overlay UMA vez (get_filepicker).
   5. Validações de TextField.value blindadas contra None — sempre
      (value or "").isdigit() em vez de value.isdigit() (corrige datepicker).
   6. Handlers do calendário em funções nomeadas (em vez de
@@ -19,13 +19,21 @@ Correções desta versão (definitiva):
      e elimina cantos escuros do parser do lambda+tuple.
   7. Diálogos abrem com page.open() e fecham com page.close() (com fallback
      para a API antiga quando a versão do Flet não suportar).
+
+FIXES v2:
+  - _get_picker() removida: estava chamando get_filepicker() duas vezes e
+    adicionando ao overlay novamente, causando "Unknown control: filepicker".
+  - on_result: corrigido para ft.FilePickerResultEvent (era FilePickerUploadEvent).
+  - picker.pick_files(): envolto em page.run_task() para evitar
+    RuntimeWarning de coroutine não aguardada.
+  - add_anexo removido de novo_contrato_dialog (Storage-only, sem tabela anexos)
+    e removido o bloco duplicado que chamava add_anexo duas vezes.
 """
 
 import flet as ft
 import os
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
-
 
 
 from database.models import (
@@ -64,6 +72,8 @@ def _snack(page, msg):
     page.snack_bar = ft.SnackBar(ft.Text(msg))
     page.snack_bar.open = True
     page.update()
+
+
 
 
 def _get_tenant(page):
@@ -167,39 +177,6 @@ def _fechar_dialog(page, dialog):
 
 
 # ======================================================
-# FILE PICKER ÚNICO POR PÁGINA
-# ======================================================
-
-def _get_picker(page: ft.Page):
-
-    if not hasattr(page, "_file_picker"):
-
-        picker = get_filepicker(page)
-        page.overlay.append(picker)
-
-        picker = get_filepicker(page)
-        page.update()
-
-    return page._file_picker
-
-def get_filepicker(page: ft.Page) -> ft.FilePicker:
-
-    if hasattr(page, "_filepicker"):
-        return page._filepicker
-
-    picker = ft.FilePicker()
-
-    page.overlay.append(picker)
-    page.update()
-
-    page._filepicker = picker
-    return picker
-
-STORAGE_BUCKET = "Heringer"
-
-
-
-# ======================================================
 # SEÇÃO DE PARTES (usa get_vinculos)
 # ======================================================
 
@@ -283,25 +260,33 @@ def _build_secao_partes(page, partes_bd, vinculos_bd, cp_existentes=None):
 
 
 # ======================================================
-# SEÇÃO DE ANEXOS — Storage privado "Heringer" + signed URL
+# SEÇÃO DE ANEXOS — Storage privado "Heringer"
 # ======================================================
 
 def _build_secao_anexos(page, modo, anexos_existentes=None):
-    """
-    modo: "novo" | "editar" | "ver"
-    """
-    pendentes = []
-    excluir   = []   # lista de caminhos a excluir do Storage
-    lista_ui  = ft.Column(spacing=6)
-    lbl_prog  = ft.Text("", size=12, color=ft.Colors.BLUE_600)
-    lbl_erro  = ft.Text("", size=12, color=ft.Colors.RED_700)
 
-    # ---- Linha de arquivo já existente ---------------------
+    pendentes = []
+    excluir = []
+
+    lista_ui = ft.Column(spacing=6)
+    lbl_prog = ft.Text("", size=12, color=ft.Colors.BLUE_600)
+    lbl_erro = ft.Text("", size=12, color=ft.Colors.RED_700)
+
+    # ======================================================
+    # FILE PICKER SERVICE GLOBAL
+    # ======================================================
+
+    picker_service = page.file_picker_service
+
+    # ======================================================
+    # ARQUIVO EXISTENTE
+    # ======================================================
+
     def _row_existente(a):
-        nome    = a.get("nome_arquivo") or "Arquivo"
+
+        nome = a.get("nome_arquivo") or "Arquivo"
         caminho = a.get("arquivo_path") or ""
 
-        # Bucket privado -> URL assinada (1h)
         url = ""
         if caminho:
             try:
@@ -309,181 +294,180 @@ def _build_secao_anexos(page, modo, anexos_existentes=None):
             except Exception as ex:
                 print("Erro signed URL:", ex)
 
+        botoes = []
+
         if url:
-            # ⚠ url_target NÃO existe no Flet 0.28/0.80.
-            # Usar url= sozinho — no web o Flet abre em nova aba por padrão.
-            btn_abrir = ft.ElevatedButton(
-                content=ft.Row(
-                    [ft.Icon(ft.Icons.OPEN_IN_NEW, size=14),
-                     ft.Text("Abrir", size=12)],
-                    spacing=4, tight=True,
-                ),
-                url=url,
-                style=ft.ButtonStyle(
-                    padding=ft.padding.symmetric(horizontal=10, vertical=6),
-                    color=ft.Colors.BLUE_700,
-                ),
+            botoes.append(
+                ft.ElevatedButton(
+                    content=ft.Row(
+                        [
+                            ft.Icon(ft.Icons.OPEN_IN_NEW, size=14),
+                            ft.Text("Abrir", size=12),
+                        ],
+                        spacing=4,
+                        tight=True,
+                    ),
+                    url=url,
+                )
             )
-            botoes = [btn_abrir]
-        else:
-            botoes = [ft.Text("URL indisponível", size=12,
-                              color=ft.Colors.GREY_500, italic=True)]
 
         if modo == "editar":
+
             def _rm(e, cam=caminho):
-                try:
-                    lista_ui.controls.remove(row)
-                except ValueError:
-                    pass
+                lista_ui.controls.remove(row)
                 if cam:
                     excluir.append(cam)
                 page.update()
+
             botoes.append(
-                ft.IconButton(icon=ft.Icons.DELETE_OUTLINE, icon_size=18,
-                              icon_color=ft.Colors.RED_400,
-                              tooltip="Remover anexo", on_click=_rm)
+                ft.IconButton(
+                    icon=ft.Icons.DELETE_OUTLINE,
+                    icon_color=ft.Colors.RED_400,
+                    on_click=_rm,
+                )
             )
 
         row = ft.Container(
-            padding=ft.padding.symmetric(vertical=6, horizontal=10),
-            border_radius=8, bgcolor=ft.Colors.GREY_50,
+            padding=10,
+            border_radius=8,
+            bgcolor=ft.Colors.GREY_50,
             border=ft.border.all(1, ft.Colors.GREY_200),
             content=ft.Row(
-                [ft.Icon(_icone_extensao(nome), size=18, color=ft.Colors.BLUE_400),
-                 ft.Text(nome, size=13, expand=True), *botoes],
-                spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                [
+                    ft.Icon(_icone_extensao(nome), size=18),
+                    ft.Text(nome, expand=True),
+                    *botoes,
+                ]
             ),
         )
+
         lista_ui.controls.append(row)
 
-    # ---- Linha de arquivo pendente -------------------------
-    _idx_counter = [0]
+    # ======================================================
+    # ARQUIVO PENDENTE
+    # ======================================================
+
+    _idx = [0]
 
     def _row_pendente(nome):
-        cur_idx = _idx_counter[0]
-        _idx_counter[0] += 1
 
-        def _cancel(e, ci=cur_idx):
-            for j, p in enumerate(pendentes):
-                if p.get("_idx") == ci:
-                    pendentes.pop(j)
-                    break
-            try:
-                lista_ui.controls.remove(row)
-            except ValueError:
-                pass
+        cur = _idx[0]
+        _idx[0] += 1
+
+        def _cancel(e, ci=cur):
+            pendentes[:] = [p for p in pendentes if p["_idx"] != ci]
+            lista_ui.controls.remove(row)
             page.update()
 
         row = ft.Container(
-            padding=ft.padding.symmetric(vertical=6, horizontal=10),
-            border_radius=8, bgcolor=ft.Colors.BLUE_50,
+            padding=10,
+            border_radius=8,
+            bgcolor=ft.Colors.BLUE_50,
             border=ft.border.all(1, ft.Colors.BLUE_100),
             content=ft.Row(
-                [ft.Icon(_icone_extensao(nome), size=18, color=ft.Colors.BLUE_600),
-                 ft.Text(nome, size=13, expand=True),
-                 ft.Text("Pendente", size=11, color=ft.Colors.BLUE_600, italic=True),
-                 ft.IconButton(icon=ft.Icons.CLOSE, icon_size=16,
-                               icon_color=ft.Colors.BLUE_400,
-                               tooltip="Cancelar", on_click=_cancel)],
-                spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                [
+                    ft.Icon(_icone_extensao(nome), size=18),
+                    ft.Text(nome, expand=True),
+                    ft.Text("Pendente", size=11),
+                    ft.IconButton(
+                        icon=ft.Icons.CLOSE,
+                        on_click=_cancel,
+                    ),
+                ]
             ),
         )
+
         lista_ui.controls.append(row)
         page.update()
-        return cur_idx
 
-    # ---- preenche existentes -------------------------------
+        return cur
+
+    # ======================================================
+    # EXISTENTES
+    # ======================================================
+
     for a in (anexos_existentes or []):
         _row_existente(a)
 
-    if not (anexos_existentes or []) and modo == "ver":
-        lbl_prog.value = "Nenhum anexo vinculado a este contrato."
+    # ======================================================
+    # FILE PICKER CALLBACK
+    # ======================================================
 
-    # ---- handlers do picker (apenas em novo/editar) --------
-    btn_add = ft.Container()
     if modo != "ver":
-        picker = get_filepicker(page)
 
-        def on_result(e: ft.FilePickerUploadEvent):
+        def on_result(e):
+
             if not e.files:
                 return
-            lbl_erro.value = ""
+
             for f in e.files:
-                if f.path:
-                    # Desktop / native — lê direto do disco
-                    try:
-                        with open(f.path, "rb") as fh:
-                            data = fh.read()
-                        idx = _row_pendente(f.name)
-                        pendentes.append({"nome": f.name, "bytes": data, "_idx": idx})
-                    except Exception as ex:
-                        lbl_erro.value = f"Erro ao ler {f.name}: {ex}"
-                        page.update()
-                else:
-                    # Web — Flet upload server
-                    try:
-                        url = page.get_upload_url(f.name, 120)
-                        picker.upload([ft.FilePickerUploadFile(f.name, upload_url=url)])
-                        lbl_prog.value = f"Enviando {f.name}..."
-                        page.update()
-                    except Exception as ex:
-                        lbl_erro.value = f"Erro upload: {ex}"
-                        page.update()
 
-        def on_upload(e: ft.FilePickerUploadEvent):
-            if e.error:
-                lbl_erro.value = f"Erro: {e.error}"
-                page.update()
-                return
-            if e.progress and e.progress < 1.0:
-                lbl_prog.value = f"Enviando {e.file_name}: {int(e.progress * 100)}%"
-                page.update()
-                return
-            lbl_prog.value = ""
-            path = os.path.join(UPLOAD_DIR, e.file_name)
-            try:
-                with open(path, "rb") as fh:
-                    data = fh.read()
                 try:
-                    os.remove(path)
-                except Exception:
-                    pass
-                idx = _row_pendente(e.file_name)
-                pendentes.append({"nome": e.file_name, "bytes": data, "_idx": idx})
-            except Exception as ex:
-                lbl_erro.value = f"Erro ao processar {e.file_name}: {ex}"
-                page.update()
+                    with open(f.path, "rb") as fh:
+                        data = fh.read()
 
-        # Reatribui handlers a cada abertura de diálogo
-        picker.on_result = on_result
-        picker.on_upload = on_upload
+                    idx = _row_pendente(f.name)
 
-        def _abrir_picker(e):
-            try:
-                picker.pick_files(allow_multiple=True)
-            except Exception as ex:
-                lbl_erro.value = f"Erro ao abrir seletor: {ex}"
-                page.update()
+                    pendentes.append(
+                        {
+                            "nome": f.name,
+                            "bytes": data,
+                            "_idx": idx,
+                        }
+                    )
+
+                except Exception as ex:
+                    lbl_erro.value = str(ex)
+
+            page.update()
+
+        # ⭐⭐⭐ REGISTRA CALLBACK DINÂMICO ⭐⭐⭐
+        picker_service.on_result_callback = on_result
+
+        # ==================================================
+        # BOTÃO
+        # ==================================================
+
+        def abrir_picker(e):
+            page.run_task(
+                picker_service.pick_files,
+                allow_multiple=True,
+            )
 
         btn_add = ft.FilledTonalButton(
             "Adicionar arquivo",
             icon=ft.Icons.UPLOAD_FILE,
-            on_click=_abrir_picker,
+            on_click=abrir_picker,
         )
+
+    else:
+        btn_add = ft.Container()
+
+    # ======================================================
+    # WIDGET FINAL
+    # ======================================================
 
     widget = ft.Column(
         [
             ft.Row(
-                [ft.Text("Anexos", weight=ft.FontWeight.BOLD, size=14), btn_add],
+                [
+                    ft.Text("Anexos", weight=ft.FontWeight.BOLD),
+                    btn_add,
+                ],
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             ),
-            lbl_prog, lbl_erro, lista_ui,
+            lbl_prog,
+            lbl_erro,
+            lista_ui,
         ],
         spacing=6,
     )
-    return {"widget": widget, "pendentes": pendentes, "excluir": excluir}
 
-
+    return {
+        "widget": widget,
+        "pendentes": pendentes,
+        "excluir": excluir,
+    }
 # ======================================================
 # NOVO CONTRATO
 # ======================================================
@@ -548,16 +532,13 @@ def novo_contrato_dialog(page: ft.Page, atualizar_lista):
     def cal_ass(e):
         calendario_ptbr(page, on_select=_set_data_ass)
 
-        tf_vig.on_change = lambda e: (recalcular(), page.update())
+    tf_vig.on_change = lambda e: (recalcular(), page.update())
 
-        secao_partes = _build_secao_partes(page, partes_bd, vinculos_bd)
-        anexos = list_anexos_storage(contrato["id"])
+    # PARTES
+    secao_partes = _build_secao_partes(page, partes_bd, vinculos_bd)
 
-        secao_anexos = _build_secao_anexos(
-            page,
-            modo="ver",
-            anexos_existentes=anexos
-        )
+    # ANEXOS (NOVO = modo edição)
+    secao_anexos = _build_secao_anexos(page, modo="editar")
 
     def salvar(e):
         if not dd_cliente.value or not tf_data_ini.value:
@@ -595,27 +576,12 @@ def novo_contrato_dialog(page: ft.Page, atualizar_lista):
                     add_contrato_parte(novo["id"],
                                        int(ln["dd_parte"].value),
                                        ln["dd_tipo"].value)
+
+            # CORREÇÃO: Storage-only — sem tabela 'anexos'.
+            # Removido bloco duplicado e chamadas a add_anexo (não importado
+            # e inconsistente com a abordagem de editar_contrato_dialog).
             for arq in secao_anexos["pendentes"]:
-
-                up = upload_anexo_storage(
-                    novo["id"],
-                    arq["nome"],
-                    arq["bytes"]
-                )
-
-                if up:
-                    add_anexo(
-                        contrato_id=novo["id"],
-                        nome_arquivo=up["nome_arquivo"],
-                        arquivo_path=up["arquivo_path"],
-                    )
-
-                if up:
-                    add_anexo(
-                        contrato_id=novo["id"],
-                        nome_arquivo=up["nome_arquivo"],
-                        arquivo_path=up["arquivo_path"],
-                    )
+                upload_anexo_storage(novo["id"], arq["nome"], arq["bytes"])
 
         _fechar_dialog(page, dialog)
         atualizar_lista()
