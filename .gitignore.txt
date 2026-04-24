@@ -1,0 +1,20 @@
+# Virtual env
+venv/
+venv_new/
+.env/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Flet uploads
+/tmp/
+flet_uploads/
+
+# Env variables
+.env
+
+# IDE
+.vscode/
+.idea/
