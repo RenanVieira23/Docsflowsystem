@@ -407,7 +407,8 @@ def _build_secao_anexos(page, modo, anexos_existentes=None):
                         with open(f.path, "rb") as fh:
                             data = fh.read()
                     else:
-                        data = bytes(f.bytes) if f.bytes else b""
+                        file_bytes = getattr(f, 'bytes', None) or getattr(f, 'data', None) or getattr(f, 'content', None)
+                        data = bytes(file_bytes) if file_bytes else b""
 
                     idx = _row_pendente(f.name)
 
