@@ -396,33 +396,38 @@ def _build_secao_anexos(page, modo, anexos_existentes=None):
     if modo != "ver":
 
         def on_result(e):
-
+            lbl_erro.value = "on_result fired!"
+            page.update()
             if not e.files:
                 return
-
+            upload_list = []
             for f in e.files:
-
-                try:
-                    if f.path and os.path.exists(f.path):
-                        with open(f.path, "rb") as fh:
-                            data = fh.read()
-                    else:
-                        file_bytes = getattr(f, 'bytes', None) or getattr(f, 'data', None) or getattr(f, 'content', None)
-                        data = bytes(file_bytes) if file_bytes else b""
-
-                    idx = _row_pendente(f.name)
-
-                    pendentes.append(
-                        {
-                            "nome": f.name,
-                            "bytes": data,
-                            "_idx": idx,
-                        }
+                upload_list.append(
+                    ft.FilePickerUploadFile(
+                        name=f.name,
+                        upload_url=page.get_upload_url(f.name, 60),
                     )
+                )
+            picker_service.on_upload_callback = lambda ue: _handle_upload(ue)
+            picker_service.upload(upload_list)
 
-                except Exception as ex:
-                    lbl_erro.value = str(ex)
-
+        def _handle_upload(ue):
+            if ue.error:
+                lbl_erro.value = f"Upload error: {ue.error}"
+                page.update()
+                return
+            lbl_erro.value = f"Upload progress: {ue.progress}"
+            page.update()
+            if ue.progress < 1.0:
+                return
+            local_path = os.path.join(UPLOAD_DIR, ue.file_name)
+            try:
+                with open(local_path, "rb") as fh:
+                    data = fh.read()
+                idx = _row_pendente(ue.file_name)
+                pendentes.append({"nome": ue.file_name, "bytes": data, "_idx": idx})
+            except Exception as ex:
+                lbl_erro.value = str(ex)
             page.update()
 
         # ⭐⭐⭐ REGISTRA CALLBACK DINÂMICO ⭐⭐⭐
