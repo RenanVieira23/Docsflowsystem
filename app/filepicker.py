@@ -69,3 +69,6 @@ class FilePickerService:
 
     def upload(self, files):
         self.picker.upload(files)
+
+    async def upload_async(self, files):
+        self.picker.upload(files)
