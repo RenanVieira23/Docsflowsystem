@@ -586,7 +586,6 @@ def novo_contrato_dialog(page: ft.Page, atualizar_lista):
                     upload_url=page.get_upload_url(f.name, 60),
                 )]
                 picker_service.upload(upload_list)
-                time.sleep(2)
                 local_path = os.path.join(UPLOAD_DIR, f.name)
                 try:
                     if os.path.exists(local_path):
