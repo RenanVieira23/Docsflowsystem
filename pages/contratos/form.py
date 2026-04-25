@@ -542,6 +542,7 @@ def novo_contrato_dialog(page: ft.Page, atualizar_lista):
     secao_anexos = _build_secao_anexos(page, modo="editar")
 
     def salvar(e):
+        print(f"🔥 SALVAR called: cliente={dd_cliente.value}, data={tf_data_ini.value}")
         if not dd_cliente.value or not tf_data_ini.value:
             _snack(page, "Cliente e data inicial são obrigatórios.")
             return
@@ -568,7 +569,8 @@ def novo_contrato_dialog(page: ft.Page, atualizar_lista):
                 "termo_final":     data_br_para_db(tf_fim.value),
             })
         except Exception as ex:
-            _snack(page, f"Erro: {ex}")
+            print(f"❌ add_contrato error: {ex}")
+            _snack(page, f"Erro ao criar contrato: {ex}")
             return
 
         if novo:
