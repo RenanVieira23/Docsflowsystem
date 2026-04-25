@@ -409,7 +409,7 @@ def _build_secao_anexos(page, modo, anexos_existentes=None):
                     )
                 )
             picker_service.on_upload_callback = lambda ue: _handle_upload(ue)
-            picker_service.upload(upload_list)
+            page.run_task(picker_service.upload_async, upload_list)
 
         def _handle_upload(ue):
             if ue.error:
