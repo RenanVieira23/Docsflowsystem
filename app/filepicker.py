@@ -53,12 +53,19 @@ class FilePickerService:
     # API PÚBLICA
     # ======================================================
     async def pick_files(self, **kwargs):
+        kwargs['with_data'] = True
         result = await self.picker.pick_files(**kwargs)
+        print(f"🔥 RAW RESULT TYPE: {type(result)}")
+        print(f"🔥 RAW RESULT: {result}")
         if result and self.on_result_callback:
             class FakeEvent:
-                files = result
-
-            self.on_result_callback(FakeEvent())
+                pass
+            fake = FakeEvent()
+            if hasattr(result, 'files'):
+                fake.files = result.files
+            else:
+                fake.files = result
+            self.on_result_callback(fake)
         return result
 
     def upload(self, files):
