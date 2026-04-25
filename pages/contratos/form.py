@@ -32,6 +32,7 @@ FIXES v2:
 
 import flet as ft
 import os
+import time
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 
@@ -400,35 +401,22 @@ def _build_secao_anexos(page, modo, anexos_existentes=None):
             page.update()
             if not e.files:
                 return
-            upload_list = []
             for f in e.files:
-                upload_list.append(
-                    ft.FilePickerUploadFile(
-                        name=f.name,
-                        upload_url=page.get_upload_url(f.name, 60),
-                    )
-                )
-            picker_service.on_upload_callback = lambda ue: _handle_upload(ue)
-            page.run_task(picker_service.upload_async, upload_list)
-
-        def _handle_upload(ue):
-            if ue.error:
-                lbl_erro.value = f"Upload error: {ue.error}"
-                page.update()
-                return
-            lbl_erro.value = f"Upload progress: {ue.progress}"
-            page.update()
-            if ue.progress < 1.0:
-                return
-            local_path = os.path.join(UPLOAD_DIR, ue.file_name)
-            try:
-                with open(local_path, "rb") as fh:
-                    data = fh.read()
-                idx = _row_pendente(ue.file_name)
-                pendentes.append({"nome": ue.file_name, "bytes": data, "_idx": idx})
-            except Exception as ex:
-                lbl_erro.value = str(ex)
-            page.update()
+                try:
+                    nome = f.name
+                    size = getattr(f, 'size', 0)
+                    lbl_erro.value = f"File: {nome} size={size} - waiting for save"
+                    page.update()
+                    idx = _row_pendente(nome)
+                    pendentes.append({
+                        "nome": nome,
+                        "bytes": b"",
+                        "_idx": idx,
+                        "_file": f,
+                    })
+                except Exception as ex:
+                    lbl_erro.value = str(ex)
+                    page.update()
 
         # ⭐⭐⭐ REGISTRA CALLBACK DINÂMICO ⭐⭐⭐
         picker_service.on_result_callback = on_result
@@ -588,13 +576,28 @@ def novo_contrato_dialog(page: ft.Page, atualizar_lista):
             # CORREÇÃO: Storage-only — sem tabela 'anexos'.
             # Removido bloco duplicado e chamadas a add_anexo (não importado
             # e inconsistente com a abordagem de editar_contrato_dialog).
+            picker_service = page.file_picker_service
             for arq in secao_anexos["pendentes"]:
-                print(f"📎 Uploading: {arq['nome']} size={len(arq['bytes'])} bytes")
+                f = arq.get("_file")
+                if f is None:
+                    continue
+                upload_list = [ft.FilePickerUploadFile(
+                    name=f.name,
+                    upload_url=page.get_upload_url(f.name, 60),
+                )]
+                picker_service.upload(upload_list)
+                time.sleep(2)
+                local_path = os.path.join(UPLOAD_DIR, f.name)
                 try:
-                    upload_anexo_storage(novo["id"], arq["nome"], arq["bytes"])
+                    if os.path.exists(local_path):
+                        with open(local_path, "rb") as fh:
+                            data = fh.read()
+                        upload_anexo_storage(novo["id"], f.name, data)
+                        _snack(page, f"Arquivo {f.name} enviado!")
+                    else:
+                        _snack(page, f"Arquivo {f.name} não encontrado no servidor")
                 except Exception as ex:
-                    print(f"❌ Upload error: {ex}")
-                    _snack(page, f"Erro upload: {ex}")
+                    _snack(page, f"Erro: {ex}")
 
         _fechar_dialog(page, dialog)
         atualizar_lista()
@@ -819,8 +822,28 @@ def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
             # Anexos — exclusões e uploads no Storage privado "Heringer"
             for caminho in secao_anexos["excluir"]:
                 delete_anexo_storage(caminho)
+            picker_service = page.file_picker_service
             for arq in secao_anexos["pendentes"]:
-                upload_anexo_storage(contrato["id"], arq["nome"], arq["bytes"])
+                f = arq.get("_file")
+                if f is None:
+                    continue
+                upload_list = [ft.FilePickerUploadFile(
+                    name=f.name,
+                    upload_url=page.get_upload_url(f.name, 60),
+                )]
+                picker_service.upload(upload_list)
+                time.sleep(2)
+                local_path = os.path.join(UPLOAD_DIR, f.name)
+                try:
+                    if os.path.exists(local_path):
+                        with open(local_path, "rb") as fh:
+                            data = fh.read()
+                        upload_anexo_storage(contrato["id"], f.name, data)
+                        _snack(page, f"Arquivo {f.name} enviado!")
+                    else:
+                        _snack(page, f"Arquivo {f.name} não encontrado no servidor")
+                except Exception as ex:
+                    _snack(page, f"Erro: {ex}")
 
         except Exception as ex:
             _snack(page, f"Erro: {ex}")
