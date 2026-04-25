@@ -53,7 +53,6 @@ class FilePickerService:
     # API PÚBLICA
     # ======================================================
     async def pick_files(self, **kwargs):
-        kwargs['with_data'] = True
         result = await self.picker.pick_files(**kwargs)
         print(f"🔥 RAW RESULT TYPE: {type(result)}")
         print(f"🔥 RAW RESULT: {result}")
