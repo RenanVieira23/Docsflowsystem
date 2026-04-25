@@ -403,8 +403,11 @@ def _build_secao_anexos(page, modo, anexos_existentes=None):
             for f in e.files:
 
                 try:
-                    with open(f.path, "rb") as fh:
-                        data = fh.read()
+                    if f.path and os.path.exists(f.path):
+                        with open(f.path, "rb") as fh:
+                            data = fh.read()
+                    else:
+                        data = bytes(f.bytes) if f.bytes else b""
 
                     idx = _row_pendente(f.name)
 
@@ -429,10 +432,7 @@ def _build_secao_anexos(page, modo, anexos_existentes=None):
         # ==================================================
 
         def abrir_picker(e):
-            page.run_task(
-                picker_service.pick_files,
-                allow_multiple=True,
-            )
+            page.run_task(picker_service.pick_files, allow_multiple=True)
 
         btn_add = ft.FilledTonalButton(
             "Adicionar arquivo",
