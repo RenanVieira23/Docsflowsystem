@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from functools import lru_cache
 from dotenv import load_dotenv
 
-from database.supabase_client import supabase
+from database.supabase_client import supabase, supabase_admin
 
 load_dotenv()
 
@@ -809,8 +809,6 @@ def delete_contrato_parte(cp_id: int):
 # 👥 GESTÃO DE USUÁRIOS (MULTI-TENANT CONSISTENTE)
 # ======================================================
 
-from database.supabase_client import supabase, supabase_admin
-
 
 # ======================================================
 # LISTAR USUÁRIOS DO TENANT
@@ -1130,7 +1128,8 @@ def upload_anexo_storage(contrato_id, nome_arquivo, file_bytes):
 
     caminho = f"contratos/{contrato_id}/anexos/{nome_arquivo}"
 
-    supabase.storage.from_(STORAGE_BUCKET).upload(
+    client = supabase_admin or supabase
+    client.storage.from_(STORAGE_BUCKET).upload(
         path=caminho,
         file=file_bytes,
         file_options={"upsert": "true"},
