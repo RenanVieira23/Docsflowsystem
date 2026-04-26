@@ -16,10 +16,10 @@ class FilePickerService:
 
     async def pick_files(self, **kwargs):
         picker = ft.FilePicker()
-        self._page.overlay.append(picker)
+        self._page.services.append(picker)
         self._page.update()
         result = await picker.pick_files(**kwargs)
-        self._page.overlay.remove(picker)
+        self._page.services.remove(picker)
         self._page.update()
         if result and self.on_result_callback:
             class FakeEvent:
