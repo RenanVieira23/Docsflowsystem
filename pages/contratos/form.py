@@ -576,27 +576,11 @@ def novo_contrato_dialog(page: ft.Page, atualizar_lista):
             # CORREÇÃO: Storage-only — sem tabela 'anexos'.
             # Removido bloco duplicado e chamadas a add_anexo (não importado
             # e inconsistente com a abordagem de editar_contrato_dialog).
-            picker_service = page.file_picker_service
             for arq in secao_anexos["pendentes"]:
                 f = arq.get("_file")
                 if f is None:
                     continue
-                upload_list = [ft.FilePickerUploadFile(
-                    name=f.name,
-                    upload_url=page.get_upload_url(f.name, 60),
-                )]
-                picker_service.upload(upload_list)
-                local_path = os.path.join(UPLOAD_DIR, f.name)
-                try:
-                    if os.path.exists(local_path):
-                        with open(local_path, "rb") as fh:
-                            data = fh.read()
-                        upload_anexo_storage(novo["id"], f.name, data)
-                        _snack(page, f"Arquivo {f.name} enviado!")
-                    else:
-                        _snack(page, f"Arquivo {f.name} não encontrado no servidor")
-                except Exception as ex:
-                    _snack(page, f"Erro: {ex}")
+                print(f"📎 Pendente: {f.name} size={getattr(f, 'size', 0)}")
 
         _fechar_dialog(page, dialog)
         atualizar_lista()
