@@ -807,28 +807,12 @@ def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
             # Anexos — exclusões e uploads no Storage privado "Heringer"
             for caminho in secao_anexos["excluir"]:
                 delete_anexo_storage(caminho)
-            picker_service = page.file_picker_service
             for arq in secao_anexos["pendentes"]:
-                f = arq.get("_file")
-                if f is None:
-                    continue
-                upload_list = [ft.FilePickerUploadFile(
-                    name=f.name,
-                    upload_url=page.get_upload_url(f.name, 60),
-                )]
-                picker_service.upload(upload_list)
-                time.sleep(2)
-                local_path = os.path.join(UPLOAD_DIR, f.name)
                 try:
-                    if os.path.exists(local_path):
-                        with open(local_path, "rb") as fh:
-                            data = fh.read()
-                        upload_anexo_storage(contrato["id"], f.name, data)
-                        _snack(page, f"Arquivo {f.name} enviado!")
-                    else:
-                        _snack(page, f"Arquivo {f.name} não encontrado no servidor")
+                    upload_anexo_storage(contrato["id"], arq["nome"], arq["bytes"])
+                    _snack(page, f"Arquivo {arq['nome']} enviado!")
                 except Exception as ex:
-                    _snack(page, f"Erro: {ex}")
+                    _snack(page, f"Erro upload: {ex}")
 
         except Exception as ex:
             _snack(page, f"Erro: {ex}")

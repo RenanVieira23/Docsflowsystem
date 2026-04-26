@@ -71,7 +71,7 @@ class SortState:
         def _key(item):
             v = item.get(chave)
             if v is None:
-                return ""
+                return (2, "")  # nulls por último; tipo compatível com (0,float) e (1,str)
             # Tenta ordenar como número se possível
             try:
                 return (0, float(str(v)))
