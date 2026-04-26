@@ -576,36 +576,27 @@ def novo_contrato_dialog(page: ft.Page, atualizar_lista):
             # CORREÇÃO: Storage-only — sem tabela 'anexos'.
             # Removido bloco duplicado e chamadas a add_anexo (não importado
             # e inconsistente com a abordagem de editar_contrato_dialog).
-            import threading
-            import requests as req
-
-            def upload_files_background(contrato_id, pendentes_copy):
-                picker_service = page.file_picker_service
-                for arq in pendentes_copy:
-                    f = arq.get("_file")
-                    if f is None:
-                        continue
-                    try:
-                        upload_list = [ft.FilePickerUploadFile(
-                            name=f.name,
-                            upload_url=page.get_upload_url(f.name, 60),
-                        )]
-                        picker_service.upload(upload_list)
-                        import time
-                        time.sleep(3)
-                        local_path = os.path.join(UPLOAD_DIR, f.name)
-                        if os.path.exists(local_path):
-                            with open(local_path, "rb") as fh:
-                                data = fh.read()
-                            upload_anexo_storage(contrato_id, f.name, data)
-                    except Exception as ex:
-                        print(f"❌ Background upload error: {ex}")
-
-            threading.Thread(
-                target=upload_files_background,
-                args=(novo["id"], list(secao_anexos["pendentes"])),
-                daemon=True
-            ).start()
+            picker_service = page.file_picker_service
+            for arq in secao_anexos["pendentes"]:
+                f = arq.get("_file")
+                if f is None:
+                    continue
+                upload_list = [ft.FilePickerUploadFile(
+                    name=f.name,
+                    upload_url=page.get_upload_url(f.name, 60),
+                )]
+                picker_service.upload(upload_list)
+                local_path = os.path.join(UPLOAD_DIR, f.name)
+                try:
+                    if os.path.exists(local_path):
+                        with open(local_path, "rb") as fh:
+                            data = fh.read()
+                        upload_anexo_storage(novo["id"], f.name, data)
+                        _snack(page, f"Arquivo {f.name} enviado!")
+                    else:
+                        _snack(page, f"Arquivo {f.name} não encontrado no servidor")
+                except Exception as ex:
+                    _snack(page, f"Erro: {ex}")
 
         _fechar_dialog(page, dialog)
         atualizar_lista()
