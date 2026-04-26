@@ -577,10 +577,12 @@ def novo_contrato_dialog(page: ft.Page, atualizar_lista):
             # Removido bloco duplicado e chamadas a add_anexo (não importado
             # e inconsistente com a abordagem de editar_contrato_dialog).
             for arq in secao_anexos["pendentes"]:
-                f = arq.get("_file")
-                if f is None:
-                    continue
-                print(f"📎 Pendente: {f.name} size={getattr(f, 'size', 0)}")
+                try:
+                    upload_anexo_storage(novo["id"], arq["nome"], arq["bytes"])
+                    print(f"✅ Uploaded: {arq['nome']} size={len(arq['bytes'])}")
+                except Exception as ex:
+                    print(f"❌ Upload error: {ex}")
+                    _snack(page, f"Erro upload: {ex}")
 
         _fechar_dialog(page, dialog)
         atualizar_lista()
