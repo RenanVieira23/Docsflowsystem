@@ -404,13 +404,13 @@ def _build_secao_anexos(page, modo, anexos_existentes=None):
             for f in e.files:
                 try:
                     nome = f.name
-                    size = getattr(f, 'size', 0)
-                    lbl_erro.value = f"File: {nome} size={size} - waiting for save"
-                    page.update()
                     idx = _row_pendente(nome)
+                    data = bytes(f.bytes) if getattr(f, "bytes", None) else b""
+                    lbl_erro.value = f"bytes={len(data)}"
+                    page.update()
                     pendentes.append({
                         "nome": nome,
-                        "bytes": b"",
+                        "bytes": data,
                         "_idx": idx,
                         "_file": f,
                     })
@@ -425,8 +425,8 @@ def _build_secao_anexos(page, modo, anexos_existentes=None):
         # BOTÃO
         # ==================================================
 
-        def abrir_picker(e):
-            page.run_task(picker_service.pick_files, allow_multiple=True)
+        async def abrir_picker(e):
+            await picker_service.pick_files(allow_multiple=True, with_data=True)
 
         btn_add = ft.FilledTonalButton(
             "Adicionar arquivo",
