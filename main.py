@@ -11,10 +11,6 @@ from pages.alertas_cadastro.view import alertas_cadastro_view
 from app.layout import AppLayout
 
 
-
-# =========================
-# HELPERS
-# =========================
 def _as_bool(v):
     if isinstance(v, bool):
         return v
@@ -25,12 +21,8 @@ def _as_bool(v):
     return False
 
 
-# =========================
-# APP
-# =========================
 def main(page: ft.Page):
 
-    # CONFIG
     page.title = "DocsFlow System"
     page.theme_mode = ft.ThemeMode.LIGHT
     page.bgcolor = ft.Colors.GREY_50
@@ -41,101 +33,83 @@ def main(page: ft.Page):
     page.local_store = {}
     views_cache = {}
 
-    # =========================
-    # FILE PICKER GLOBAL
-    # =========================
     from app.filepicker import FilePickerService
-
     fp_service = FilePickerService()
     fp_service.register(page)
 
     print("✅ FilePicker Service ativo")
-    # =========================
-    # LOG ASYNC
-    # =========================
+
+    # =========================================================
+    # FIX RLS: log_async agora passa tenant_id para registrar_log
+    # =========================================================
     def log_async(usuario_id, acao):
+        # lê tenant_id do store no momento da chamada
+        tenant_id = page.local_store.get("tenant_id")
+
         def run():
             try:
-                registrar_log(usuario_id, acao)
-            except:
+                registrar_log(usuario_id, acao, tenant_id=tenant_id)
+            except Exception:
                 pass
 
         threading.Thread(target=run, daemon=True).start()
 
-    # =========================
-    # ROTAS
-    # =========================
     def get_view(route):
 
         usuario_id = page.local_store.get("usuario_id")
 
-        # 🔥 proteção login
         if route != "/login" and not usuario_id:
             page.go("/login")
             return ft.Container()
 
-        # LOGIN
         if route == "/login":
             if "login" not in views_cache:
                 views_cache["login"] = login_view(page, page.go)
             return views_cache["login"]
 
-        # DASHBOARD
         if route == "/dashboard":
-
             if usuario_id:
                 log_async(usuario_id, "Acessou o Dashboard")
-
             if route not in views_cache:
                 views_cache[route] = dashboard.dashboard_view(page)
-
             return views_cache[route]
 
-        # CLIENTES
         if route == "/clientes":
             if route not in views_cache:
                 views_cache[route] = clientes.clientes_view(page)
             return views_cache[route]
 
-        # CONTRATOS
         if route == "/contratos":
             if route not in views_cache:
                 views_cache[route] = contratos.contratos_view(page)
             return views_cache[route]
 
-        # ALERTAS
         if route in ["/alertas", "/painel"]:
             if "/alertas" not in views_cache:
                 views_cache["/alertas"] = painel.painel_view(page)
             return views_cache["/alertas"]
 
-        # RELATÓRIOS
         if route == "/relatorios":
             if route not in views_cache:
                 views_cache[route] = relatorios.relatorios_view(page)
             return views_cache[route]
 
-        # PARTES
         if route == "/partes":
             if route not in views_cache:
                 views_cache[route] = partes_view(page)
             return views_cache[route]
 
-        # TIPOS PARTES
         if route == "/tipos-partes":
             if route not in views_cache:
                 views_cache[route] = tipos_partes_view(page)
             return views_cache[route]
 
-        # ALERTAS CADASTRO
         if route == "/alertas-cadastro":
             if route not in views_cache:
                 views_cache[route] = alertas_cadastro_view(page)
             return views_cache[route]
 
-        # ADMIN
         if route == "/admin":
-
             is_admin = _as_bool(page.local_store.get("is_admin"))
             is_global_admin = _as_bool(page.local_store.get("is_global_admin"))
 
@@ -148,24 +122,15 @@ def main(page: ft.Page):
 
             if route not in views_cache:
                 views_cache[route] = admin_view(page)
-
             return views_cache[route]
 
-        # fallback
         page.go("/dashboard")
         return ft.Container()
 
-    # =========================
-    # LAYOUT
-    # =========================
     layout = AppLayout(page, get_view)
     page.layout_instance = layout
 
-    # =========================
-    # ROUTE CHANGE
-    # =========================
     def on_route_change(e):
-
         print("➡️ ROTA:", page.route)
 
         if page.route == "/login":
@@ -183,27 +148,16 @@ def main(page: ft.Page):
 
     page.on_route_change = on_route_change
 
-    # =========================
-    # START (FLET 0.84 FIX)
-    # =========================
-
-    page.on_route_change = on_route_change
-
-    # força rota inicial corretamente
     if page.route == "":
         page.go("/login")
     else:
         on_route_change(None)
 
-# =========================
-# RUN
-# =========================
-if __name__ == "__main__":
 
+if __name__ == "__main__":
     import os
 
     port = int(os.environ.get("PORT", 5000))
-
     print(f"🚀 Servidor iniciado na porta {port}")
 
     upload_dir = os.environ.get("FLET_UPLOAD_DIR", "/tmp/flet_uploads")

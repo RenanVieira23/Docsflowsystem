@@ -123,8 +123,8 @@ class TiposPartesView(ft.Column):
         try:
             # vinculos precisam de tenant_id
             partes    = await asyncio.to_thread(get_vinculos, self.tenant_id)
-            contratos = await asyncio.to_thread(get_tipos_contratos)
-            prazos    = await asyncio.to_thread(get_tipos_prazos)
+            contratos = await asyncio.to_thread(get_tipos_contratos, self.tenant_id)
+            prazos    = await asyncio.to_thread(get_tipos_prazos, self.tenant_id)
         except Exception as ex:
             print("Erro tipos:", ex)
             partes = contratos = prazos = []

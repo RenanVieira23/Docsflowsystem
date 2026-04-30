@@ -107,7 +107,7 @@ class ClientesView(ft.Column):
 
         try:
             tenant_id = self.app_page.local_store.get("tenant_id")
-            dados = await asyncio.to_thread(get_clientes, tenant_id)
+            dados = await asyncio.to_thread(get_clientes, tenant_id, True)
         except Exception as ex:
             print("Erro clientes:", ex)
             dados = []

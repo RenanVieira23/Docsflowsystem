@@ -54,6 +54,7 @@ def novo_cliente_dialog(page: ft.Page, atualizar_tabela):
                     "tipo": dd_tipo.value,
                     "documento": tf_documento.value,
                     "sigla": sigla_auto,
+                    "tenant_id": page.local_store["tenant_id"]
                 }
             )
 

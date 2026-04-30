@@ -37,15 +37,6 @@ def _as_bool(v):
         return v.strip().lower() in ("true", "t", "1", "yes", "y", "sim")
     return False
 
-def _call(payload):
-    try:
-        r = requests.post(BASE, json=payload, headers=HEADERS, timeout=20)
-        data = r.json()
-        if r.status_code != 200 or not data.get("ok"):
-            return False, data.get("message")
-        return True, data.get("data")
-    except Exception as e:
-        return False, str(e)
 
 # ======================================================
 # TOKEN (para Edge Functions com Bearer)
@@ -122,9 +113,7 @@ def _cache_clientes(tenant_id: str):
             .eq("tenant_id", tenant_id),
             "Erro cache clientes"
         )
-
         return resp.data if resp else []
-
     except Exception as e:
         print(f"❌ erro cache clientes: {e}")
         return []
@@ -139,9 +128,7 @@ def _cache_contratos(tenant_id: str):
             .eq("tenant_id", tenant_id),
             "Erro cache contratos"
         )
-
         return resp.data if resp else []
-
     except Exception as e:
         print(f"❌ erro cache contratos: {e}")
         return []
@@ -153,6 +140,8 @@ def _clear_cache():
         _cache_contratos.cache_clear()
     except Exception as e:
         print(f"❌ erro ao limpar cache: {e}")
+
+
 # ======================================================
 # AUTH + PERFIL
 # ======================================================
@@ -184,11 +173,7 @@ def autenticar_usuario(email: str, senha: str):
         if not perfil:
             return {"_error": "PERFIL_NAO_ENCONTRADO"}
 
-        # =========================
-        # GARANTE TENANT_ID PRIMEIRO
-        # =========================
         tenant_id = perfil.get("tenant_id")
-
         tenant_nome = "Tenant"
 
         if tenant_id:
@@ -196,14 +181,8 @@ def autenticar_usuario(email: str, senha: str):
             if tenant:
                 tenant_nome = tenant.get("nome")
 
-        # =========================
-        # ADMIN FLAGS
-        # =========================
         perfil = _merge_admin_flags(perfil, res.user)
 
-        # =========================
-        # SESSION
-        # =========================
         perfil["_session"] = {
             "access_token": token,
             "refresh_token": res.session.refresh_token,
@@ -211,9 +190,6 @@ def autenticar_usuario(email: str, senha: str):
             "auth_uid": auth_uid,
         }
 
-        # =========================
-        # FIX FINAL GARANTIDO
-        # =========================
         perfil["tenant_nome"] = tenant_nome
 
         return perfil
@@ -221,7 +197,8 @@ def autenticar_usuario(email: str, senha: str):
     except Exception as e:
         print(f"❌ Erro ao autenticar/buscar perfil: {e}")
         return None
-    
+
+
 def get_perfil_por_auth_uid(auth_uid: str):
     try:
         resp = supabase.table("usuarios").select("*").eq("auth_uid", str(auth_uid)).maybe_single().execute()
@@ -229,6 +206,7 @@ def get_perfil_por_auth_uid(auth_uid: str):
     except Exception as e:
         print(f"❌ Erro ao buscar perfil por auth_uid: {e}")
         return None
+
 
 def get_tenant_por_id(tenant_id):
     try:
@@ -240,26 +218,23 @@ def get_tenant_por_id(tenant_id):
             .maybe_single()
             .execute()
         )
-
         return resp.data if resp else None
-
     except Exception as e:
         print(f"❌ Erro ao buscar tenant: {e}")
         return None
-# ======================================================
-# 👥 CLIENTES (MULTI-TENANT SEGURO)
-# ======================================================
 
-from functools import lru_cache
-from database.supabase_client import supabase
 
 # ======================================================
-# GET CLIENTES
+# 👥 CLIENTES
 # ======================================================
 
-def get_clientes(tenant_id: str):
+def get_clientes(tenant_id: str, force=False):
     try:
+        if force:
+            _clear_cache()
+
         return list(_cache_clientes(tenant_id))
+
     except Exception as e:
         print(f"❌ erro clientes: {e}")
         return []
@@ -267,16 +242,11 @@ def get_clientes(tenant_id: str):
 
 def add_cliente(cliente: dict):
     try:
-        # segurança: nunca deixa inserir sem tenant_id
         if "tenant_id" not in cliente:
             raise Exception("tenant_id obrigatório")
-
         data = supabase.table("clientes").insert(cliente).execute()
-
         _clear_cache()
-
         return data.data[0] if data.data else None
-
     except Exception as e:
         print(f"❌ erro add cliente: {e}")
         return None
@@ -298,24 +268,15 @@ def update_cliente(cliente_id: int, dados: dict):
             .eq("id", cliente_id)
             .execute()
         )
-
         _clear_cache()
-
         return resp.data[0] if resp.data else None
-
     except Exception as e:
         print(f"❌ erro update cliente: {e}")
         return None
 
 
-
-
 # ======================================================
-# 📄 CONTRATOS (MULTI-TENANT SEGURO)
-# ======================================================
-
-# ======================================================
-# GET TODOS CONTRATOS (TENANT)
+# 📄 CONTRATOS
 # ======================================================
 
 def get_contratos(tenant_id: str):
@@ -326,10 +287,6 @@ def get_contratos(tenant_id: str):
         return []
 
 
-# ======================================================
-# CONTRATOS POR CLIENTE (TENANT + CLIENTE)
-# ======================================================
-
 def get_contratos_por_cliente(cliente_id: int, tenant_id: str):
     try:
         data = (
@@ -339,37 +296,23 @@ def get_contratos_por_cliente(cliente_id: int, tenant_id: str):
             .eq("tenant_id", tenant_id)
             .execute()
         )
-
         return data.data if data.data else []
-
     except Exception as e:
         print(f"❌ Erro ao buscar contratos do cliente {cliente_id}: {e}")
         return []
 
 
-# ======================================================
-# ADD CONTRATO (FORÇA TENANT)
-# ======================================================
-
 def add_contrato(contrato: dict):
     try:
         if "tenant_id" not in contrato:
             raise Exception("tenant_id obrigatório no contrato")
-
         resp = supabase.table("contratos").insert(contrato).execute()
-
         _clear_cache()
-
         return resp.data[0] if resp.data else None
-
     except Exception as e:
         print(f"❌ Erro ao adicionar contrato: {e}")
         return None
 
-
-# ======================================================
-# DELETE CONTRATO
-# ======================================================
 
 def delete_contrato(contrato_id: int):
     try:
@@ -379,10 +322,6 @@ def delete_contrato(contrato_id: int):
         print(f"❌ Erro ao deletar contrato: {e}")
 
 
-# ======================================================
-# UPDATE CONTRATO
-# ======================================================
-
 def update_contrato(contrato_id: int, dados: dict):
     try:
         resp = (
@@ -391,20 +330,18 @@ def update_contrato(contrato_id: int, dados: dict):
             .eq("id", contrato_id)
             .execute()
         )
-
         _clear_cache()
-
         return resp.data[0] if resp.data else None
-
     except Exception as e:
         print(f"❌ Erro ao atualizar contrato: {e}")
         return None
+
 
 # ======================================================
 # PRAZOS
 # ======================================================
 
-def add_prazo(contrato_id, meses, observacao, data_criacao, data_vencimento,tenant_id):
+def add_prazo(contrato_id, meses, observacao, data_criacao, data_vencimento, tenant_id):
     try:
         novo_prazo = {
             "contrato_id": contrato_id,
@@ -412,13 +349,14 @@ def add_prazo(contrato_id, meses, observacao, data_criacao, data_vencimento,tena
             "observacao": observacao or "",
             "data_criacao": data_criacao or datetime.now().strftime("%Y-%m-%d"),
             "data_vencimento": data_vencimento,
-            "tenant_id": tenant_id,
+            "tenant_id": tenant_id,  # ← obrigatório para RLS
         }
         resp = supabase.table("prazos").insert(novo_prazo).execute()
         return resp.data[0] if resp.data else novo_prazo
     except Exception as e:
         print(f"❌ Erro ao adicionar prazo: {e}")
         return None
+
 
 def get_prazos_por_contrato(contrato_id):
     try:
@@ -427,6 +365,7 @@ def get_prazos_por_contrato(contrato_id):
     except Exception as e:
         print(f"❌ Erro ao buscar prazos: {e}")
         return []
+
 
 def update_prazo(prazo_id: int, dados: dict):
     try:
@@ -441,20 +380,28 @@ def update_prazo(prazo_id: int, dados: dict):
 
 # ======================================================
 # NOTIFICAÇÕES
+# FIX RLS: tenant_id agora obrigatório no insert
 # ======================================================
 
-def add_notificacao(prazo_id, dias_antes=None, data_enviada=None):
+def add_notificacao(prazo_id, tenant_id: str, dias_antes=None, data_enviada=None):
+    """
+    tenant_id é obrigatório para passar na política RLS de INSERT.
+    """
     try:
+        if not tenant_id:
+            raise Exception("tenant_id obrigatório em add_notificacao")
         nova = {
             "prazo_id": prazo_id,
             "dias_antes": dias_antes or 0,
             "data_enviada": data_enviada or datetime.now().strftime("%Y-%m-%d"),
+            "tenant_id": tenant_id,  # ← obrigatório para RLS
         }
         resp = supabase.table("notificacoes_enviadas").insert(nova).execute()
         return resp.data[0] if resp.data else nova
     except Exception as e:
         print(f"❌ Erro ao adicionar notificação: {e}")
         return None
+
 
 def get_notificacoes_por_prazo(prazo_id):
     try:
@@ -467,6 +414,7 @@ def get_notificacoes_por_prazo(prazo_id):
 
 # ======================================================
 # TIPOS DE NOTIFICAÇÃO
+# (tabela sem tenant_id — política libera para autenticados)
 # ======================================================
 
 def get_tipos_notificacao():
@@ -477,6 +425,7 @@ def get_tipos_notificacao():
         print(f"❌ Erro ao buscar tipos de notificação: {e}")
         return []
 
+
 def add_tipo_notificacao(nome: str):
     try:
         payload = {"nome": (nome or "").strip(), "ativo": True}
@@ -486,6 +435,7 @@ def add_tipo_notificacao(nome: str):
         print(f"❌ Erro ao adicionar tipo de notificação: {e}")
         return None
 
+
 def update_tipo_notificacao(tipo_id: int, dados: dict):
     try:
         resp = supabase.table("tipos_notificacao").update(dados).eq("id", tipo_id).execute()
@@ -493,6 +443,7 @@ def update_tipo_notificacao(tipo_id: int, dados: dict):
     except Exception as e:
         print(f"❌ Erro ao atualizar tipo de notificação: {e}")
         return None
+
 
 def delete_tipo_notificacao(tipo_id: int):
     try:
@@ -505,11 +456,26 @@ def delete_tipo_notificacao(tipo_id: int):
 
 # ======================================================
 # LOGS
+# FIX RLS: tenant_id agora obrigatório no insert
 # ======================================================
 
-def registrar_log(usuario_id, acao, detalhes=None):
+def registrar_log(usuario_id, acao, detalhes=None, tenant_id=None):
+    """
+    tenant_id é obrigatório para passar na política RLS de INSERT.
+    Se não for fornecido, o log é silenciosamente ignorado para não
+    quebrar o fluxo principal da aplicação.
+    """
     try:
-        novo = {"usuario_id": usuario_id, "acao": acao, "detalhes": detalhes, "data_hora": _now()}
+        if not tenant_id:
+            print(f"⚠️ registrar_log: tenant_id não fornecido, log ignorado (acao={acao})")
+            return
+        novo = {
+            "usuario_id": usuario_id,
+            "acao": acao,
+            "detalhes": detalhes,
+            "data_hora": _now(),
+            "tenant_id": tenant_id,  # ← obrigatório para RLS
+        }
         supabase.table("logs").insert(novo).execute()
     except Exception as e:
         print(f"❌ Erro ao registrar log: {e}")
@@ -517,19 +483,31 @@ def registrar_log(usuario_id, acao, detalhes=None):
 
 # ======================================================
 # ANEXOS
+# FIX RLS: tenant_id agora obrigatório no insert
 # ======================================================
 
-def add_anexo(contrato_id, nome_arquivo, arquivo_url=None, arquivo_path=None):
+def add_anexo(contrato_id, nome_arquivo, tenant_id: str, arquivo_url=None, arquivo_path=None):
+    """
+    tenant_id é obrigatório para passar na política RLS de INSERT.
+    """
     try:
-        novo = {"contrato_id": contrato_id, "nome_arquivo": nome_arquivo, "arquivo_url": arquivo_url, "arquivo_path": arquivo_path}
+        if not tenant_id:
+            raise Exception("tenant_id obrigatório em add_anexo")
+        novo = {
+            "contrato_id": contrato_id,
+            "nome_arquivo": nome_arquivo,
+            "arquivo_url": arquivo_url,
+            "arquivo_path": arquivo_path,
+            "tenant_id": tenant_id,  # ← obrigatório para RLS
+        }
         resp = supabase.table("anexos").insert(novo).execute()
         return resp.data[0] if resp.data else novo
     except Exception as e:
         print(f"❌ Erro ao adicionar anexo: {e}")
         return None
 
-def get_anexos_por_contrato(contrato_id):
 
+def get_anexos_por_contrato(contrato_id):
     resp = (
         supabase
         .table("anexos")
@@ -537,10 +515,13 @@ def get_anexos_por_contrato(contrato_id):
         .eq("contrato_id", contrato_id)
         .execute()
     )
-
     return resp.data or []
+
+
 # ======================================================
 # DASHBOARD / RELATÓRIOS
+# Com RLS ativo, as queries abaixo auto-filtram pelo tenant
+# do usuário logado via JWT — não precisam de tenant_id explícito.
 # ======================================================
 
 def get_total_prazos():
@@ -551,6 +532,7 @@ def get_total_prazos():
         print(f"❌ Erro ao contar prazos: {e}")
         return 0
 
+
 def get_total_alertas_enviados():
     try:
         resp = supabase.table("notificacoes_enviadas").select("id", count="exact").execute()
@@ -559,18 +541,20 @@ def get_total_alertas_enviados():
         print(f"❌ Erro ao contar notificações: {e}")
         return 0
 
+
 def get_relatorio_notificacoes_paginado(status="todos", limit=50, offset=0):
     try:
         query = supabase.table("prazos").select("""
             id, observacao, data_criacao, data_vencimento,
             contratos (nome, data_inicial, clientes (nome)),
             notificacoes_enviadas (dias_antes, data_enviada)
-        """).range(offset, offset+limit-1)
+        """).range(offset, offset + limit - 1)
         data = query.execute().data or []
         return _formatar_relatorio(data, status)
     except Exception as e:
         print(f"❌ Erro relatório paginado: {e}")
         return []
+
 
 def get_relatorio_notificacoes_export(status="todos"):
     try:
@@ -585,6 +569,7 @@ def get_relatorio_notificacoes_export(status="todos"):
         print(f"❌ Erro relatório export: {e}")
         return []
 
+
 def get_total_notificacoes(status="todos"):
     try:
         query = supabase.table("prazos").select("id", count="exact")
@@ -593,13 +578,16 @@ def get_total_notificacoes(status="todos"):
         print(f"❌ Erro total relatório: {e}")
         return 0
 
+
 def _formatar_relatorio(dados, status):
     rel = []
     for p in dados:
         notif = p.get("notificacoes_enviadas") or []
         enviado = len(notif) > 0
-        if status == "enviados" and not enviado: continue
-        if status == "pendentes" and enviado: continue
+        if status == "enviados" and not enviado:
+            continue
+        if status == "pendentes" and enviado:
+            continue
         contrato = p.get("contratos") or {}
         cliente = (contrato.get("clientes") or {}).get("nome", "-")
         rel.append({
@@ -616,6 +604,7 @@ def _formatar_relatorio(dados, status):
 
 # ======================================================
 # ALERTAS
+# Com RLS, auto-filtra pelo tenant do JWT.
 # ======================================================
 
 def get_alertas_por_periodo(dias=7):
@@ -657,6 +646,7 @@ HEADERS = {
     "apikey": os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 }
 
+
 def _call(payload):
     try:
         r = requests.post(BASE, json=payload, headers=HEADERS, timeout=20)
@@ -667,20 +657,15 @@ def _call(payload):
     except Exception as e:
         return False, str(e)
 
+
 def listar_usuarios_admin():
     return _call({"action": "list"})
 
-def criar_usuario_admin(email, senha, usuario, role):
-    return _call({"action": "create", "email": email, "password": senha, "usuario": usuario, "role": role})
-
-def atualizar_usuario_admin(user_id, payload):
-    return _call({"action": "update", "id": user_id, "usuario": payload["usuario"], "role": payload["role"]})
-
-def deletar_usuario_admin(user_id):
-    return _call({"action": "delete", "id": user_id})
 
 # ======================================================
 # 👤 PARTES
+# Com RLS, get_partes() auto-filtra pelo tenant do JWT.
+# add_parte: o dict deve conter tenant_id — veja partes/form.py
 # ======================================================
 
 def get_partes():
@@ -696,7 +681,13 @@ def get_partes():
 
 
 def add_parte(parte: dict):
+    """
+    parte deve conter tenant_id para passar na política RLS de INSERT.
+    Ex: add_parte({"nome": ..., "tipo": ..., "documento": ..., "tenant_id": tid})
+    """
     try:
+        if "tenant_id" not in parte:
+            raise Exception("tenant_id obrigatório em add_parte")
         resp = supabase.table("partes").insert(parte).execute()
         return resp.data[0] if resp.data else None
     except Exception as e:
@@ -720,15 +711,23 @@ def update_parte(parte_id: int, dados: dict):
 
 # ======================================================
 # 🏷️ TIPOS DE PARTES
+# (tabela tipos_partes — sem tenant_id no schema)
 # ======================================================
 
 def get_tipos_partes():
     try:
+        tenant_id = get_tenant_id()
+
         resp = _safe_exec(
-            supabase.table("tipos_partes").select("*").order("nome"),
+            supabase.table("tipos_partes")
+            .select("*")
+            .eq("tenant_id", tenant_id)
+            .order("nome"),
             "Erro tipos_partes"
         )
+
         return resp.data if resp else []
+
     except Exception as e:
         print(f"❌ Erro ao buscar tipos de partes: {e}")
         return []
@@ -736,8 +735,15 @@ def get_tipos_partes():
 
 def add_tipo_parte(nome: str):
     try:
-        resp = supabase.table("tipos_partes").insert({"nome": nome.strip()}).execute()
+        tenant_id = get_tenant_id()
+
+        resp = supabase.table("tipos_partes").insert({
+            "nome": nome.strip(),
+            "tenant_id": tenant_id,
+        }).execute()
+
         return resp.data[0] if resp.data else None
+
     except Exception as e:
         print(f"❌ Erro ao adicionar tipo de parte: {e}")
         return None
@@ -745,29 +751,40 @@ def add_tipo_parte(nome: str):
 
 def update_tipo_parte(tipo_id: int, dados: dict):
     try:
+        tenant_id = get_tenant_id()
+
         resp = (
             supabase.table("tipos_partes")
             .update(dados)
             .eq("id", tipo_id)
+            .eq("tenant_id", tenant_id)
             .execute()
         )
+
         return resp.data[0] if resp.data else None
+
     except Exception as e:
         print(f"❌ Erro ao atualizar tipo de parte: {e}")
         return None
 
-
 def delete_tipo_parte(tipo_id: int):
     try:
-        supabase.table("tipos_partes").delete().eq("id", tipo_id).execute()
+        tenant_id = get_tenant_id()
+
+        supabase.table("tipos_partes") \
+            .delete() \
+            .eq("id", tipo_id) \
+            .eq("tenant_id", tenant_id) \
+            .execute()
+
         return True
+
     except Exception as e:
         print(f"❌ Erro ao deletar tipo de parte: {e}")
         return False
-
-
 # ======================================================
 # 🔗 CONTRATO_PARTES
+# FIX RLS: tenant_id agora obrigatório no insert
 # ======================================================
 
 def get_contrato_partes(contrato_id: int):
@@ -783,12 +800,19 @@ def get_contrato_partes(contrato_id: int):
         print(f"❌ Erro ao buscar partes do contrato: {e}")
         return []
 
-def add_contrato_parte(contrato_id: int, parte_id: int, tipo_vinculo: str):
+
+def add_contrato_parte(contrato_id: int, parte_id: int, tipo_vinculo: str, tenant_id: str):
+    """
+    tenant_id é obrigatório para passar na política RLS de INSERT.
+    """
     try:
+        if not tenant_id:
+            raise Exception("tenant_id obrigatório em add_contrato_parte")
         payload = {
             "contrato_id": contrato_id,
             "parte_id": parte_id,
             "tipo_vinculo": tipo_vinculo,
+            "tenant_id": tenant_id,  # ← obrigatório para RLS
         }
         resp = supabase.table("contrato_partes").insert(payload).execute()
         return resp.data[0] if resp.data else None
@@ -805,20 +829,15 @@ def delete_contrato_parte(cp_id: int):
         print(f"❌ Erro ao remover parte do contrato: {e}")
         return False
 
-# ======================================================
-# 👥 GESTÃO DE USUÁRIOS (MULTI-TENANT CONSISTENTE)
-# ======================================================
-
 
 # ======================================================
-# LISTAR USUÁRIOS DO TENANT
+# 👥 GESTÃO DE USUÁRIOS (sempre via supabase_admin)
 # ======================================================
 
 def get_usuarios_do_tenant(tenant_id: str) -> list:
-    """Lista usuários do tenant (bypass RLS com admin)."""
+    """Lista usuários do tenant via service role (bypass RLS intencional)."""
     try:
         client = supabase_admin or supabase
-
         resp = (
             client.table("usuarios")
             .select("*")
@@ -826,40 +845,27 @@ def get_usuarios_do_tenant(tenant_id: str) -> list:
             .order("usuario")
             .execute()
         )
-
         return resp.data or []
-
     except Exception as e:
         print(f"❌ Erro ao listar usuários: {e}")
         return []
 
 
-# ======================================================
-# LISTAR GLOBAL (DEBUG / ADMIN MASTER)
-# ======================================================
-
 def get_usuarios() -> list:
-    """Lista todos os usuários (sem filtro de tenant)."""
+    """Lista todos os usuários sem filtro de tenant (admin global)."""
     try:
         client = supabase_admin or supabase
-
         resp = (
             client.table("usuarios")
             .select("*")
             .order("usuario")
             .execute()
         )
-
         return resp.data or []
-
     except Exception as e:
         print(f"❌ Erro ao listar usuários: {e}")
         return []
 
-
-# ======================================================
-# CRIAR USUÁRIO (AUTH + PERFIL TENANT)
-# ======================================================
 
 def criar_usuario_admin(
     email: str,
@@ -875,11 +881,9 @@ def criar_usuario_admin(
 
     email = email.strip().lower()
     nome_usuario = nome_usuario.strip()
-
     auth_uid = None
 
     try:
-        # 1️⃣ AUTH
         res = supabase_admin.auth.admin.create_user({
             "email": email,
             "password": senha,
@@ -889,7 +893,6 @@ def criar_usuario_admin(
 
         auth_uid = str(res.user.id)
 
-        # 2️⃣ PERFIL (TENANT ISOLADO)
         perfil = {
             "usuario": nome_usuario,
             "email": email,
@@ -909,25 +912,15 @@ def criar_usuario_admin(
         return resp.data[0] if resp.data else perfil
 
     except Exception as e:
-        # rollback auth se falhar banco
         try:
             if auth_uid:
                 supabase_admin.auth.admin.delete_user(auth_uid)
-        except:
+        except Exception:
             pass
-
         return {"_error": str(e)}
 
 
-# ======================================================
-# UPDATE USUÁRIO
-# ======================================================
-
 def update_usuario_admin(usuario_id: int, dados: dict) -> dict:
-    """
-    Atualiza usuário + senha opcional no Auth.
-    """
-
     senha = dados.pop("senha", None)
 
     try:
@@ -938,13 +931,10 @@ def update_usuario_admin(usuario_id: int, dados: dict) -> dict:
             .eq("id", usuario_id)
             .execute()
         )
-
         perfil = resp.data[0] if resp.data else {}
-
     except Exception as e:
         return {"_error": str(e)}
 
-    # senha auth
     if senha and perfil.get("auth_uid"):
         try:
             supabase_admin.auth.admin.update_user_by_id(
@@ -957,15 +947,7 @@ def update_usuario_admin(usuario_id: int, dados: dict) -> dict:
     return perfil
 
 
-# ======================================================
-# DELETE USUÁRIO
-# ======================================================
-
 def delete_usuario_admin(usuario_id: int) -> bool:
-    """
-    Remove usuário do tenant + Auth.
-    """
-
     try:
         resp = (
             supabase_admin
@@ -978,13 +960,11 @@ def delete_usuario_admin(usuario_id: int) -> bool:
 
         auth_uid = resp.data.get("auth_uid") if resp.data else None
 
-        # remove perfil
         supabase_admin.table("usuarios") \
             .delete() \
             .eq("id", usuario_id) \
             .execute()
 
-        # remove auth
         if auth_uid:
             supabase_admin.auth.admin.delete_user(auth_uid)
 
@@ -993,6 +973,8 @@ def delete_usuario_admin(usuario_id: int) -> bool:
     except Exception as e:
         print(f"❌ Erro ao deletar usuário: {e}")
         return False
+
+
 # ======================================================
 # 🔗 VÍNCULOS (tipos de partes)
 # ======================================================
@@ -1015,9 +997,7 @@ def add_vinculo(tipo: str, tenant_id: str):
             "tipo": tipo.strip(),
             "tenant_id": tenant_id
         }).execute()
-
         return resp.data[0] if resp.data else {}
-
     except Exception as e:
         print(f"❌ Erro ao adicionar vínculo: {e}")
         return {"_error": str(e)}
@@ -1031,13 +1011,12 @@ def delete_vinculo(vinculo_id: int) -> bool:
         print(f"❌ Erro ao deletar vínculo: {e}")
         return False
 
+
 def update_vinculo(vinculo_id: int, dados: dict) -> dict:
     try:
         tipo = (dados.get("tipo") or "").strip()
-
         if not tipo:
             return {"_error": "Tipo inválido."}
-
         resp = (
             supabase
             .table("vinculos")
@@ -1045,160 +1024,25 @@ def update_vinculo(vinculo_id: int, dados: dict) -> dict:
             .eq("id", vinculo_id)
             .execute()
         )
-
         return resp.data[0] if resp.data else {}
-
     except Exception as e:
         print(f"❌ Erro ao atualizar vínculo: {e}")
         return {"_error": str(e)}
 
 
 # ======================================================
-# ⏰ TIPOS DE PRAZOS
+# 📄 TIPOS DE CONTRATOS
+# Função única consolidada (havia duplicata no código original).
+# Com RLS ativo, o SELECT auto-filtra pelo tenant do JWT.
 # ======================================================
 
-def get_tipos_prazos_db(tenant_id: str = None) -> list:
+def get_tipos_contratos(tenant_id: str = None):
     try:
-        q = supabase.table("tipos_prazos").select("*")
+        q = supabase.table("tipos_contratos").select("*").order("nome")
+        # filtro explícito opcional — com RLS já está filtrado pelo JWT
         if tenant_id:
             q = q.eq("tenant_id", tenant_id)
-        resp = q.order("nome").execute()
-        return resp.data if resp.data else []
-    except Exception as e:
-        print(f"❌ Erro ao buscar tipos de prazos: {e}")
-        return []
-
-
-def add_tipo_prazo_db(nome: str, tenant_id: str) -> dict:
-    try:
-        resp = supabase.table("tipos_prazos").insert({"nome": nome.strip(), "tenant_id": tenant_id}).execute()
-        return resp.data[0] if resp.data else {}
-    except Exception as e:
-        print(f"❌ Erro ao adicionar tipo de prazo: {e}")
-        return {"_error": str(e)}
-
-
-def delete_tipo_prazo_db(tipo_id: int) -> bool:
-    try:
-        supabase.table("tipos_prazos").delete().eq("id", tipo_id).execute()
-        return True
-    except Exception as e:
-        print(f"❌ Erro ao deletar tipo de prazo: {e}")
-        return False
-
-
-# ======================================================
-# STORAGE PRIVADO "Heringer"
-# ======================================================
-STORAGE_BUCKET = "Heringer"
-
-
-def list_anexos_storage(contrato_id: int):
-
-    pasta = f"contratos/{contrato_id}/anexos"
-
-    try:
-        files = supabase.storage.from_(STORAGE_BUCKET).list(pasta)
-
-        print("========== STORAGE DEBUG ==========")
-        print("BUCKET:", STORAGE_BUCKET)
-        print("PASTA:", pasta)
-        print("FILES:", files)
-        print("===================================")
-
-        anexos = []
-
-        for f in files:
-            nome = f.get("name")
-
-            if not nome or nome.startswith("."):
-                continue
-
-            anexos.append({
-                "nome_arquivo": nome,
-                "arquivo_path": f"{pasta}/{nome}",
-            })
-
-        return anexos
-
-    except Exception as e:
-        print("❌ erro list storage:", e)
-        return []
-def upload_anexo_storage(contrato_id, nome_arquivo, file_bytes):
-
-    caminho = f"contratos/{contrato_id}/anexos/{nome_arquivo}"
-
-    client = supabase_admin or supabase
-    client.storage.from_(STORAGE_BUCKET).upload(
-        path=caminho,
-        file=file_bytes,
-        file_options={"upsert": "true"},
-    )
-
-    return {
-        "nome_arquivo": nome_arquivo,
-        "arquivo_path": caminho,
-    }
-
-def delete_anexo_storage(arquivo_path: str) -> bool:
-    """Remove um arquivo do Storage 'Heringer'."""
-    if not arquivo_path:
-        return False
-    try:
-        supabase.storage.from_(STORAGE_BUCKET).remove([arquivo_path])
-        return True
-    except Exception as e:
-        print(f"❌ erro delete_anexo_storage: {e}")
-        return False
-
-
-def get_anexo_signed_url(
-    arquivo_path: str,
-    expires_in: int = 3600
-) -> str | None:
-    """
-    Gera URL assinada para bucket privado Supabase Storage.
-    """
-
-    if not arquivo_path:
-        return None
-
-    try:
-        resp = (
-            supabase.storage
-            .from_(STORAGE_BUCKET)
-            .create_signed_url(arquivo_path, expires_in)
-        )
-
-        if isinstance(resp, dict):
-            return (
-                resp.get("signedURL")
-                or resp.get("signed_url")
-                or resp.get("signedUrl")
-                or (resp.get("data") or {}).get("signedURL")
-                or (resp.get("data") or {}).get("signedUrl")
-            )
-
-        return None
-
-    except Exception as e:
-        print(f"❌ erro get_anexo_signed_url: {e}")
-        return None
-    # ======================================================
-# TIPOS DE CONTRATO
-# ======================================================
-# ======================================================
-# 📄 TIPOS DE CONTRATOS
-# ======================================================
-
-def get_tipos_contratos():
-    try:
-        resp = _safe_exec(
-            supabase.table("tipos_contratos")
-            .select("*")
-            .order("nome"),
-            "Erro tipos_contratos"
-        )
+        resp = _safe_exec(q, "Erro tipos_contratos")
         return resp.data if resp else []
     except Exception as e:
         print(f"❌ Erro ao buscar tipos de contratos: {e}")
@@ -1211,9 +1055,7 @@ def add_tipo_contrato(nome: str, tenant_id: str):
             "nome": nome.strip(),
             "tenant_id": tenant_id
         }).execute()
-
         return resp.data[0] if resp.data else None
-
     except Exception as e:
         print(f"❌ Erro ao adicionar tipo de contrato: {e}")
         return None
@@ -1227,9 +1069,7 @@ def update_tipo_contrato(tipo_id: int, dados: dict):
             .eq("id", tipo_id)
             .execute()
         )
-
         return resp.data[0] if resp.data else None
-
     except Exception as e:
         print(f"❌ Erro ao atualizar tipo de contrato: {e}")
         return None
@@ -1237,33 +1077,33 @@ def update_tipo_contrato(tipo_id: int, dados: dict):
 
 def delete_tipo_contrato(tipo_id: int):
     try:
-        supabase.table("tipos_contratos")\
-            .delete()\
-            .eq("id", tipo_id)\
-            .execute()
-
+        supabase.table("tipos_contratos").delete().eq("id", tipo_id).execute()
         return True
-
     except Exception as e:
         print(f"❌ Erro ao deletar tipo de contrato: {e}")
         return False
-    
+
+
 # ======================================================
 # ⏰ TIPOS DE PRAZOS
+# Função única consolidada (havia duplicata no código original).
 # ======================================================
 
-def get_tipos_prazos():
+def get_tipos_prazos(tenant_id: str = None):
     try:
-        resp = _safe_exec(
-            supabase.table("tipos_prazos")
-            .select("*")
-            .order("nome"),
-            "Erro tipos_prazos"
-        )
+        q = supabase.table("tipos_prazos").select("*").order("nome")
+        if tenant_id:
+            q = q.eq("tenant_id", tenant_id)
+        resp = _safe_exec(q, "Erro tipos_prazos")
         return resp.data if resp else []
     except Exception as e:
         print(f"❌ Erro ao buscar tipos de prazos: {e}")
         return []
+
+
+# Alias mantido para compatibilidade com chamadas antigas
+def get_tipos_prazos_db(tenant_id: str = None) -> list:
+    return get_tipos_prazos(tenant_id)
 
 
 def add_tipo_prazo(nome: str, tenant_id: str):
@@ -1272,13 +1112,16 @@ def add_tipo_prazo(nome: str, tenant_id: str):
             "nome": nome.strip(),
             "tenant_id": tenant_id
         }).execute()
-
         return resp.data[0] if resp.data else None
-
     except Exception as e:
         print(f"❌ Erro ao adicionar tipo de prazo: {e}")
         return None
 
+
+# Alias mantido para compatibilidade
+def add_tipo_prazo_db(nome: str, tenant_id: str) -> dict:
+    result = add_tipo_prazo(nome, tenant_id)
+    return result or {}
 
 
 def update_tipo_prazo(tipo_id: int, dados: dict):
@@ -1289,9 +1132,7 @@ def update_tipo_prazo(tipo_id: int, dados: dict):
             .eq("id", tipo_id)
             .execute()
         )
-
         return resp.data[0] if resp.data else None
-
     except Exception as e:
         print(f"❌ Erro ao atualizar tipo de prazo: {e}")
         return None
@@ -1299,13 +1140,86 @@ def update_tipo_prazo(tipo_id: int, dados: dict):
 
 def delete_tipo_prazo(tipo_id: int):
     try:
-        supabase.table("tipos_prazos")\
-            .delete()\
-            .eq("id", tipo_id)\
-            .execute()
-
+        supabase.table("tipos_prazos").delete().eq("id", tipo_id).execute()
         return True
-
     except Exception as e:
         print(f"❌ Erro ao deletar tipo de prazo: {e}")
         return False
+
+
+# Alias mantido para compatibilidade
+def delete_tipo_prazo_db(tipo_id: int) -> bool:
+    return delete_tipo_prazo(tipo_id)
+
+
+# ======================================================
+# STORAGE PRIVADO "Heringer"
+# ======================================================
+STORAGE_BUCKET = "Heringer"
+
+
+def list_anexos_storage(contrato_id: int):
+    pasta = f"contratos/{contrato_id}/anexos"
+    try:
+        files = supabase.storage.from_(STORAGE_BUCKET).list(pasta)
+        anexos = []
+        for f in files:
+            nome = f.get("name")
+            if not nome or nome.startswith("."):
+                continue
+            anexos.append({
+                "nome_arquivo": nome,
+                "arquivo_path": f"{pasta}/{nome}",
+            })
+        return anexos
+    except Exception as e:
+        print("❌ erro list storage:", e)
+        return []
+
+
+def upload_anexo_storage(contrato_id, nome_arquivo, file_bytes):
+    caminho = f"contratos/{contrato_id}/anexos/{nome_arquivo}"
+    client = supabase_admin or supabase
+    client.storage.from_(STORAGE_BUCKET).upload(
+        path=caminho,
+        file=file_bytes,
+        file_options={"upsert": "true"},
+    )
+    return {
+        "nome_arquivo": nome_arquivo,
+        "arquivo_path": caminho,
+    }
+
+
+def delete_anexo_storage(arquivo_path: str) -> bool:
+    if not arquivo_path:
+        return False
+    try:
+        supabase.storage.from_(STORAGE_BUCKET).remove([arquivo_path])
+        return True
+    except Exception as e:
+        print(f"❌ erro delete_anexo_storage: {e}")
+        return False
+
+
+def get_anexo_signed_url(arquivo_path: str, expires_in: int = 3600) -> str | None:
+    if not arquivo_path:
+        return None
+    try:
+        resp = (
+            supabase.storage
+            .from_(STORAGE_BUCKET)
+            .create_signed_url(arquivo_path, expires_in)
+        )
+        if isinstance(resp, dict):
+            return (
+                resp.get("signedURL")
+                or resp.get("signed_url")
+                or resp.get("signedUrl")
+                or (resp.get("data") or {}).get("signedURL")
+                or (resp.get("data") or {}).get("signedUrl")
+            )
+        return None
+    except Exception as e:
+        print(f"❌ erro get_anexo_signed_url: {e}")
+        return None
