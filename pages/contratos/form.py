@@ -55,6 +55,7 @@ from database.models import (
     upload_anexo_storage,
     delete_anexo_storage,
     get_anexo_signed_url,
+    get_tipos_contratos,
 )
 
 from utils.calendario_ptbr import calendario_ptbr
@@ -462,6 +463,7 @@ def _build_secao_anexos(page, modo, anexos_existentes=None):
         "pendentes": pendentes,
         "excluir": excluir,
     }
+
 # ======================================================
 # NOVO CONTRATO
 # ======================================================
@@ -473,41 +475,107 @@ def novo_contrato_dialog(page: ft.Page, atualizar_lista):
         _snack(page, "Tenant não identificado. Faça login novamente.")
         return
 
-    clientes    = get_clientes(tenant_id) or []
-    partes_bd   = get_partes() or []
-    vinculos_bd = get_vinculos(tenant_id) or []
+    clientes        = get_clientes(tenant_id) or []
+    partes_bd       = get_partes() or []
+    vinculos_bd     = get_vinculos(tenant_id) or []
+    tipos_contrato  = get_tipos_contratos(tenant_id) or []
 
     if not clientes:
         _snack(page, "Nenhum cliente cadastrado.")
         return
 
+    # ======================================================
+    # CLIENTE + TIPO CONTRATO (LADO A LADO)
+    # ======================================================
+
     dd_cliente = ft.Dropdown(
-        label="Cliente", width=380,
+        label="Cliente",
+        width=260,
         options=[ft.dropdown.Option(str(c["id"]), c["nome"]) for c in clientes],
     )
 
-    # Responsável read-only (usuário logado)
-    tf_resp = ft.TextField(label="Responsável",
-                           value=_get_usuario_nome(page),
-                           disabled=True, width=380)
-
-    tf_clausulas = ft.TextField(
-        label="Observação / Cláusulas", width=380,
-        multiline=True, min_lines=3, max_lines=5,
+    dd_tipo_contrato = ft.Dropdown(
+        label="Tipo de contrato",
+        width=260,
+        options=[
+            ft.dropdown.Option(t["nome"], t["nome"])
+            for t in tipos_contrato
+        ],
     )
 
-    tf_data_ini = ft.TextField(label="Data inicial (DD/MM/AAAA)",
-                               width=190, hint_text="Ex: 01/01/2025", read_only=True)
-    tf_data_ass = ft.TextField(label="Data de assinatura",
-                               width=190, hint_text="Ex: 01/01/2025", read_only=True)
-    tf_vig      = ft.TextField(label="Vigência (meses)", width=140,
-                               keyboard_type=ft.KeyboardType.NUMBER)
-    tf_fim      = ft.TextField(label="Termo final", read_only=True, width=190)
+    # ======================================================
+    # RESPONSÁVEL
+    # ======================================================
+
+    tf_resp = ft.TextField(
+        label="Responsável",
+        value=_get_usuario_nome(page),
+        disabled=True,
+        width=380
+    )
+
+    # ======================================================
+    # ÍNDICE (NOVO CAMPO)
+    # ======================================================
+
+    tf_indice = ft.TextField(
+        label="Índice",
+        width=380,
+        hint_text="Ex: IPCA, IGPM, INPC..."
+    )
+
+    # ======================================================
+    # CLÁUSULAS
+    # ======================================================
+
+    tf_clausulas = ft.TextField(
+        label="Observação / Cláusulas",
+        width=380,
+        multiline=True,
+        min_lines=3,
+        max_lines=5,
+    )
+
+    # ======================================================
+    # DATAS
+    # ======================================================
+
+    tf_data_ini = ft.TextField(
+        label="Data inicial (DD/MM/AAAA)",
+        width=190,
+        hint_text="Ex: 01/01/2025",
+        read_only=True
+    )
+
+    tf_data_ass = ft.TextField(
+        label="Data de assinatura",
+        width=190,
+        hint_text="Ex: 01/01/2025",
+        read_only=True
+    )
+
+    tf_vig = ft.TextField(
+        label="Vigência (meses)",
+        width=140,
+        keyboard_type=ft.KeyboardType.NUMBER
+    )
+
+    tf_fim = ft.TextField(
+        label="Termo final",
+        read_only=True,
+        width=190
+    )
+
+    # ======================================================
+    # RECALCULAR VIGÊNCIA
+    # ======================================================
 
     def recalcular():
         dt = _parse_db(data_br_para_db(tf_data_ini.value or ""))
         if dt and _is_int_str(tf_vig.value):
-            tf_fim.value = data_db_para_br(_format_db(_data_por_meses(dt, int(tf_vig.value))))
+            tf_fim.value = data_db_para_br(
+                _format_db(_data_por_meses(dt, int(tf_vig.value)))
+            )
         else:
             tf_fim.value = ""
 
@@ -528,26 +596,41 @@ def novo_contrato_dialog(page: ft.Page, atualizar_lista):
 
     tf_vig.on_change = lambda e: (recalcular(), page.update())
 
+    # ======================================================
     # PARTES
+    # ======================================================
+
     secao_partes = _build_secao_partes(page, partes_bd, vinculos_bd)
 
-    # ANEXOS (NOVO = modo edição)
+    # ======================================================
+    # ANEXOS
+    # ======================================================
+
     secao_anexos = _build_secao_anexos(page, modo="editar")
 
+    # ======================================================
+    # SALVAR
+    # ======================================================
+
     def salvar(e):
-        print(f"🔥 SALVAR called: cliente={dd_cliente.value}, data={tf_data_ini.value}")
+
         if not dd_cliente.value or not tf_data_ini.value:
             _snack(page, "Cliente e data inicial são obrigatórios.")
             return
+
         if not data_br_para_db(tf_data_ini.value):
-            _snack(page, "Data inválida. Use DD/MM/AAAA.")
+            _snack(page, "Data inválida.")
             return
+
         if tf_vig.value and not _is_int_str(tf_vig.value):
             _snack(page, "Vigência inválida.")
             return
 
         cli  = next(c for c in clientes if str(c["id"]) == dd_cliente.value)
-        nome = _gerar_nome(cli["sigla"], get_contratos_por_cliente(cli["id"], tenant_id))
+        nome = _gerar_nome(
+            cli["sigla"],
+            get_contratos_por_cliente(cli["id"], tenant_id)
+        )
 
         try:
             novo = add_contrato({
@@ -555,38 +638,48 @@ def novo_contrato_dialog(page: ft.Page, atualizar_lista):
                 "nome":            nome,
                 "cliente_id":      cli["id"],
                 "responsavel":     tf_resp.value or "",
+                "indice":          tf_indice.value or None,
+                "tipo_contrato":   dd_tipo_contrato.value or None,
                 "clausulas":       tf_clausulas.value or "",
                 "data_inicial":    data_br_para_db(tf_data_ini.value),
-                "data_assinatura": data_br_para_db(tf_data_ass.value) if tf_data_ass.value else None,
-                "vigencia":        int(tf_vig.value) if _is_int_str(tf_vig.value) else None,
+                "data_assinatura": data_br_para_db(tf_data_ass.value)
+                                    if tf_data_ass.value else None,
+                "vigencia":        int(tf_vig.value)
+                                    if _is_int_str(tf_vig.value) else None,
                 "termo_final":     data_br_para_db(tf_fim.value),
             })
+
         except Exception as ex:
-            print(f"❌ add_contrato error: {ex}")
             _snack(page, f"Erro ao criar contrato: {ex}")
             return
 
         if novo:
+
             for ln in secao_partes["linhas"]:
                 if ln["dd_parte"].value and ln["dd_tipo"].value:
-                    add_contrato_parte(novo["id"],
-                                       int(ln["dd_parte"].value),
-                                       ln["dd_tipo"].value)
+                    add_contrato_parte(
+                        novo["id"],
+                        int(ln["dd_parte"].value),
+                        ln["dd_tipo"].value
+                    )
 
-            # CORREÇÃO: Storage-only — sem tabela 'anexos'.
-            # Removido bloco duplicado e chamadas a add_anexo (não importado
-            # e inconsistente com a abordagem de editar_contrato_dialog).
             for arq in secao_anexos["pendentes"]:
                 try:
-                    upload_anexo_storage(novo["id"], arq["nome"], arq["bytes"])
-                    print(f"✅ Uploaded: {arq['nome']} size={len(arq['bytes'])}")
+                    upload_anexo_storage(
+                        novo["id"],
+                        arq["nome"],
+                        arq["bytes"]
+                    )
                 except Exception as ex:
-                    print(f"❌ Upload error: {ex}")
                     _snack(page, f"Erro upload: {ex}")
 
         _fechar_dialog(page, dialog)
         atualizar_lista()
         _snack(page, f"Contrato {nome} criado.")
+
+    # ======================================================
+    # DIALOG
+    # ======================================================
 
     dialog = ft.AlertDialog(
         modal=True,
@@ -595,36 +688,63 @@ def novo_contrato_dialog(page: ft.Page, atualizar_lista):
             height=580,
             content=ft.Column(
                 [
-                    dd_cliente,
+                    ft.Row([dd_cliente, dd_tipo_contrato], spacing=12),
+
                     secao_partes["widget"],
                     ft.Divider(height=1),
+
                     tf_resp,
+
+                    # ✅ ÍNDICE antes das cláusulas
+                    tf_indice,
                     tf_clausulas,
-                    ft.Row([
-                        ft.OutlinedButton("Data inicial",     icon=ft.Icons.CALENDAR_TODAY,
-                                          height=36, on_click=cal_ini),
-                        tf_data_ini,
-                        ft.OutlinedButton("Data assinatura",  icon=ft.Icons.CALENDAR_TODAY,
-                                          height=36, on_click=cal_ass),
-                        tf_data_ass,
-                    ], spacing=8, wrap=True),
+
+                    ft.Row(
+                        spacing=20,
+                        wrap=True,
+                        controls=[
+                            ft.Column(
+                                spacing=6,
+                                controls=[
+                                    ft.OutlinedButton(
+                                        "Data inicial",
+                                        icon=ft.Icons.CALENDAR_TODAY,
+                                        on_click=cal_ini
+                                    ),
+                                    tf_data_ini,
+                                ],
+                            ),
+                            ft.Column(
+                                spacing=6,
+                                controls=[
+                                    ft.OutlinedButton(
+                                        "Data assinatura",
+                                        icon=ft.Icons.CALENDAR_TODAY,
+                                        on_click=cal_ass
+                                    ),
+                                    tf_data_ass,
+            ],
+        ),
+    ],
+),
                     ft.Row([tf_vig, tf_fim], spacing=16),
+
                     ft.Divider(height=1),
                     secao_anexos["widget"],
                 ],
-                spacing=10, scroll=ft.ScrollMode.AUTO,
+                spacing=10,
+                scroll=ft.ScrollMode.AUTO,
             ),
         ),
         actions=[
-            ft.TextButton("Cancelar", on_click=lambda e: _fechar_dialog(page, dialog)),
+            ft.TextButton("Cancelar",
+                          on_click=lambda e: _fechar_dialog(page, dialog)),
             ft.FilledButton("Salvar", on_click=salvar),
         ],
         actions_alignment=ft.MainAxisAlignment.END,
     )
 
     _abrir_dialog(page, dialog)
-
-
 # ======================================================
 # EDITAR CONTRATO
 # ======================================================

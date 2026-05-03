@@ -97,7 +97,7 @@ class ContratosView(ft.Column):
         self.sort = SortState(default_col=0)
         self.sort.set_callback(self._render_tabela)
         self.sort_chaves = [
-            "id", "nome", "_cliente", "responsavel", "valor",
+            "id", "nome", "_cliente", "responsavel", "indice",
             "data_assinatura", "data_inicial", "vigencia", "termo_final",
             "ativo", None,
         ]
@@ -193,7 +193,7 @@ class ContratosView(ft.Column):
                 ft.DataColumn(ft.Text("Apelido",     size=self.tbl_font), on_sort=self.sort.handler(1)),
                 ft.DataColumn(ft.Text("Cliente",     size=self.tbl_font), on_sort=self.sort.handler(2)),
                 ft.DataColumn(ft.Text("Responsável", size=self.tbl_font), on_sort=self.sort.handler(3)),
-                ft.DataColumn(ft.Text("Valor",       size=self.tbl_font), on_sort=self.sort.handler(4)),
+                ft.DataColumn(ft.Text("Identificador",       size=self.tbl_font), on_sort=self.sort.handler(4)),
                 ft.DataColumn(ft.Text("Assinatura",  size=self.tbl_font), on_sort=self.sort.handler(5)),
                 ft.DataColumn(ft.Text("Início",      size=self.tbl_font), on_sort=self.sort.handler(6)),
                 ft.DataColumn(ft.Text("Vig.",        size=self.tbl_font), on_sort=self.sort.handler(7)),
@@ -424,7 +424,7 @@ class ContratosView(ft.Column):
                 cliente = self.clientes_map.get(c.get("cliente_id"), "").lower()
                 texto = " ".join([
                     str(c.get("id", "")), str(c.get("nome", "")), cliente,
-                    str(c.get("valor", "")), str(c.get("responsavel", "")),
+                    str(c.get("indice", "")), str(c.get("responsavel", "")),
                     str(c.get("data_assinatura", "")), str(c.get("vigencia", "")),
                     str(c.get("data_inicial", "")), str(c.get("termo_final", "")),
                     "ativo" if self.is_ativo(c) else "inativo",
@@ -482,7 +482,7 @@ class ContratosView(ft.Column):
                     ft.DataCell(ft.Text(c.get("nome", ""),                              size=self.tbl_font)),
                     ft.DataCell(ft.Text(self.clientes_map.get(c.get("cliente_id"), "-"), size=self.tbl_font)),
                     ft.DataCell(ft.Text(c.get("responsavel") or "-",                    size=self.tbl_font)),
-                    ft.DataCell(ft.Text(f"R$ {c.get('valor') or '-'}",                  size=self.tbl_font)),
+                    ft.DataCell(ft.Text(f"{c.get('indice') or '-'}",                  size=self.tbl_font)),
                     ft.DataCell(ft.Text(data_db_para_br(c.get("data_assinatura")) or "-", size=self.tbl_font)),
                     ft.DataCell(ft.Text(data_db_para_br(c.get("data_inicial")) or "-",  size=self.tbl_font)),
                     ft.DataCell(ft.Text(str(c.get("vigencia") or "-"),                  size=self.tbl_font)),
