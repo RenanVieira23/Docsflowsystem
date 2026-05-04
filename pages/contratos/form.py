@@ -519,7 +519,7 @@ def novo_contrato_dialog(page: ft.Page, atualizar_lista):
     # ======================================================
 
     tf_indice = ft.TextField(
-        label="Índice",
+        label="Identificador",
         width=380,
         hint_text="Ex: IPCA, IGPM, INPC..."
     )
@@ -761,44 +761,88 @@ def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
         _snack(page, "Tenant não identificado. Faça login novamente.")
         return
 
-    partes_bd   = get_partes() or []
-    vinculos_bd = get_vinculos(tenant_id) or []
+    partes_bd      = get_partes() or []
+    vinculos_bd    = get_vinculos(tenant_id) or []
+    tipos_contrato = get_tipos_contratos(tenant_id) or []
 
-    tf_cliente = ft.TextField(label="Cliente",
-                              value=(contrato.get("clientes") or {}).get("nome", ""),
-                              disabled=True, width=300)
-    tf_nome_c  = ft.TextField(label="Contrato", value=contrato.get("nome"),
-                              disabled=True, width=260)
+    # ── Mesmos campos do Novo, com valores pré-preenchidos ──
+
+    # Cliente: read-only (não muda no editar)
+    dd_cliente = ft.Dropdown(
+        label="Cliente",
+        width=260,
+        options=[ft.dropdown.Option(
+            str((contrato.get("clientes") or {}).get("id") or contrato.get("cliente_id") or ""),
+            (contrato.get("clientes") or {}).get("nome", ""),
+        )],
+        value=str((contrato.get("clientes") or {}).get("id") or contrato.get("cliente_id") or ""),
+        disabled=True,
+    )
+
+    dd_tipo_contrato = ft.Dropdown(
+        label="Tipo de contrato",
+        width=260,
+        value=contrato.get("tipo_contrato"),
+        options=[ft.dropdown.Option(t["nome"], t["nome"]) for t in tipos_contrato],
+    )
 
     tf_resp = ft.TextField(
         label="Responsável",
         value=contrato.get("responsavel") or _get_usuario_nome(page),
-        disabled=True, width=580,
+        disabled=True,
+        width=380,
+    )
+
+    tf_indice = ft.TextField(
+        label="Identificador",
+        value=contrato.get("indice") or "",
+        width=380,
+        hint_text="Ex: IPCA, IGPM, INPC...",
     )
 
     tf_clausulas = ft.TextField(
         label="Observação / Cláusulas",
         value=contrato.get("clausulas") or "",
-        width=580, multiline=True, min_lines=3, max_lines=5,
+        width=380,
+        multiline=True,
+        min_lines=3,
+        max_lines=5,
     )
 
-    tf_data_ini = ft.TextField(label="Data inicial",
-                               value=data_db_para_br(contrato.get("data_inicial")),
-                               disabled=True, width=190)
-    tf_data_ass = ft.TextField(label="Data de assinatura",
-                               value=data_db_para_br(contrato.get("data_assinatura")),
-                               width=190, read_only=True)
-    tf_vig = ft.TextField(label="Vigência (meses)",
-                          value=str(contrato.get("vigencia") or ""),
-                          width=140, keyboard_type=ft.KeyboardType.NUMBER)
-    tf_fim = ft.TextField(label="Termo final",
-                          value=data_db_para_br(contrato.get("termo_final")),
-                          width=190, read_only=True)
+    tf_data_ini = ft.TextField(
+        label="Data inicial (DD/MM/AAAA)",
+        value=data_db_para_br(contrato.get("data_inicial")),
+        width=190,
+        read_only=True,
+        disabled=True,
+    )
+
+    tf_data_ass = ft.TextField(
+        label="Data de assinatura",
+        value=data_db_para_br(contrato.get("data_assinatura")),
+        width=190,
+        read_only=True,
+    )
+
+    tf_vig = ft.TextField(
+        label="Vigência (meses)",
+        value=str(contrato.get("vigencia") or ""),
+        width=140,
+        keyboard_type=ft.KeyboardType.NUMBER,
+    )
+
+    tf_fim = ft.TextField(
+        label="Termo final",
+        value=data_db_para_br(contrato.get("termo_final")),
+        width=190,
+        read_only=True,
+    )
 
     def recalcular():
         if _is_int_str(tf_vig.value):
-            tf_fim.value = data_db_para_br(_format_db(
-                _data_por_meses(data_base, int(tf_vig.value))))
+            tf_fim.value = data_db_para_br(
+                _format_db(_data_por_meses(data_base, int(tf_vig.value)))
+            )
         else:
             tf_fim.value = ""
         page.update()
@@ -813,7 +857,11 @@ def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
     tf_vig.on_change = lambda e: recalcular()
     recalcular()
 
-    # ---- prazos ----
+    # ── Partes ──
+    cp_existentes = get_contrato_partes(contrato["id"]) or []
+    secao_partes  = _build_secao_partes(page, partes_bd, vinculos_bd, cp_existentes)
+
+    # ── Prazos ──
     prazos           = get_prazos_por_contrato(contrato["id"]) or []
     container_prazos = ft.Column(spacing=6)
     linhas_prazos    = []
@@ -827,8 +875,9 @@ def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
 
         def sync():
             if _is_int_str(tf_m.value):
-                tf_d.value = data_db_para_br(_format_db(
-                    _data_por_meses(data_base, int(tf_m.value))))
+                tf_d.value = data_db_para_br(
+                    _format_db(_data_por_meses(data_base, int(tf_m.value)))
+                )
 
         tf_m.on_change = lambda e: (sync(), page.update())
 
@@ -866,14 +915,12 @@ def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
         criar_linha_prazo(None)
         page.update()
 
-    # ---- partes / anexos ----
-    cp_existentes = get_contrato_partes(contrato["id"]) or []
-    secao_partes  = _build_secao_partes(page, partes_bd, vinculos_bd, cp_existentes)
-
+    # ── Anexos ──
     anexos_existentes = list_anexos_storage(contrato["id"]) or []
     secao_anexos = _build_secao_anexos(page, modo="editar",
                                        anexos_existentes=anexos_existentes)
 
+    # ── Salvar ──
     def salvar(e):
         if tf_vig.value and not _is_int_str(tf_vig.value):
             _snack(page, "Vigência inválida.")
@@ -881,7 +928,9 @@ def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
 
         try:
             update_contrato(contrato["id"], {
+                "tipo_contrato":   dd_tipo_contrato.value or None,
                 "responsavel":     tf_resp.value or "",
+                "indice":          tf_indice.value or None,
                 "clausulas":       tf_clausulas.value or "",
                 "data_assinatura": data_br_para_db(tf_data_ass.value) if tf_data_ass.value else None,
                 "vigencia":        int(tf_vig.value) if _is_int_str(tf_vig.value) else None,
@@ -924,13 +973,11 @@ def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
                 if cp_id is None:
                     add_contrato_parte(contrato["id"], int(p_val), t_val)
 
-            # Anexos — exclusões e uploads no Storage privado "Heringer"
             for caminho in secao_anexos["excluir"]:
                 delete_anexo_storage(caminho)
             for arq in secao_anexos["pendentes"]:
                 try:
                     upload_anexo_storage(contrato["id"], arq["nome"], arq["bytes"])
-                    _snack(page, f"Arquivo {arq['nome']} enviado!")
                 except Exception as ex:
                     _snack(page, f"Erro upload: {ex}")
 
@@ -949,28 +996,50 @@ def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
             height=660,
             content=ft.Column(
                 [
-                    ft.Row([tf_cliente, tf_nome_c], spacing=16, wrap=True),
+                    ft.Row([dd_cliente, dd_tipo_contrato], spacing=12),
+
                     secao_partes["widget"],
                     ft.Divider(height=1),
+
                     tf_resp,
+                    tf_indice,
                     tf_clausulas,
-                    ft.Row([
-                        ft.OutlinedButton("Assinatura", icon=ft.Icons.CALENDAR_TODAY,
-                                          height=36, on_click=cal_ass),
-                        tf_data_ass, tf_data_ini,
-                    ], spacing=8, wrap=True),
+
+                    ft.Row(
+                        spacing=20,
+                        wrap=True,
+                        controls=[
+                            ft.Column(spacing=6, controls=[
+                                ft.Text("Data inicial:", size=12, color=ft.Colors.GREY_600),
+                                tf_data_ini,
+                            ]),
+                            ft.Column(spacing=6, controls=[
+                                ft.OutlinedButton(
+                                    "Data assinatura",
+                                    icon=ft.Icons.CALENDAR_TODAY,
+                                    on_click=cal_ass,
+                                ),
+                                tf_data_ass,
+                            ]),
+                        ],
+                    ),
+
                     ft.Row([tf_vig, tf_fim], spacing=16),
+
                     ft.Divider(height=1),
+
                     ft.Row(
                         [ft.Text("Prazos", weight=ft.FontWeight.BOLD),
                          ft.FilledButton("Adicionar prazo", height=32, on_click=novo_prazo)],
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                     ),
                     container_prazos,
+
                     ft.Divider(height=1),
                     secao_anexos["widget"],
                 ],
-                spacing=10, scroll=ft.ScrollMode.AUTO,
+                spacing=10,
+                scroll=ft.ScrollMode.AUTO,
             ),
         ),
         actions=[
@@ -989,16 +1058,121 @@ def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
 
 def ver_contrato_dialog(page: ft.Page, contrato: dict, clientes_map: dict):
 
+    tenant_id = _get_tenant(page)
+
     prazos       = get_prazos_por_contrato(contrato["id"]) or []
     cp_lista     = get_contrato_partes(contrato["id"]) or []
     todas_partes = get_partes() or []
     partes_map   = {str(p["id"]): p for p in todas_partes}
     anexos       = list_anexos_storage(contrato["id"]) or []
+    tipos_contrato = get_tipos_contratos(tenant_id) or []
 
     nome_cliente = clientes_map.get(contrato.get("cliente_id"), "-")
 
-    if prazos:
-        itens_prazos = [
+    # ── Mesmos campos do Novo, todos disabled/read_only ──
+
+    dd_cliente = ft.Dropdown(
+        label="Cliente",
+        width=260,
+        options=[ft.dropdown.Option("_", nome_cliente)],
+        value="_",
+        disabled=True,
+    )
+
+    dd_tipo_contrato = ft.Dropdown(
+        label="Tipo de contrato",
+        width=260,
+        value=contrato.get("tipo_contrato"),
+        options=[ft.dropdown.Option(t["nome"], t["nome"]) for t in tipos_contrato],
+        disabled=True,
+    )
+
+    tf_resp = ft.TextField(
+        label="Responsável",
+        value=contrato.get("responsavel") or "-",
+        disabled=True,
+        width=380,
+    )
+
+    tf_indice = ft.TextField(
+        label="Indicador",
+        value=contrato.get("indice") or "-",
+        width=380,
+        read_only=True,
+    )
+
+    tf_clausulas = ft.TextField(
+        label="Observação / Cláusulas",
+        value=contrato.get("clausulas") or "",
+        width=380,
+        multiline=True,
+        min_lines=3,
+        max_lines=5,
+        read_only=True,
+    )
+
+    tf_data_ini = ft.TextField(
+        label="Data inicial (DD/MM/AAAA)",
+        value=data_db_para_br(contrato.get("data_inicial")),
+        width=190,
+        read_only=True,
+    )
+
+    tf_data_ass = ft.TextField(
+        label="Data de assinatura",
+        value=data_db_para_br(contrato.get("data_assinatura")),
+        width=190,
+        read_only=True,
+    )
+
+    tf_vig = ft.TextField(
+        label="Vigência (meses)",
+        value=str(contrato.get("vigencia") or ""),
+        width=140,
+        read_only=True,
+    )
+
+    tf_fim = ft.TextField(
+        label="Termo final",
+        value=data_db_para_br(contrato.get("termo_final")),
+        width=190,
+        read_only=True,
+    )
+
+    # ── Partes (read-only dropdowns) ──
+    partes_bd   = get_partes() or []
+    vinculos_bd = get_vinculos(tenant_id) or []
+    opts_partes   = [ft.dropdown.Option(str(p["id"]), p["nome"]) for p in partes_bd]
+    opts_vinculos = [
+        ft.dropdown.Option(v.get("tipo") or v.get("nome"))
+        for v in vinculos_bd if (v.get("tipo") or v.get("nome"))
+    ]
+
+    partes_col = ft.Column(spacing=6)
+    for cp in cp_lista:
+        partes_col.controls.append(
+            ft.Container(
+                padding=ft.padding.symmetric(vertical=4, horizontal=8),
+                border_radius=8, bgcolor=ft.Colors.GREY_50,
+                border=ft.border.all(1, ft.Colors.GREY_200),
+                content=ft.Row([
+                    ft.Icon(ft.Icons.PERSON_OUTLINE, size=16, color=ft.Colors.BLUE_400),
+                    ft.Dropdown(options=opts_partes, value=str(cp.get("parte_id") or ""),
+                                width=240, dense=True, disabled=True),
+                    ft.Dropdown(options=opts_vinculos, value=cp.get("tipo_vinculo"),
+                                width=180, dense=True, disabled=True),
+                ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            )
+        )
+    if not cp_lista:
+        partes_col.controls.append(
+            ft.Text("Nenhuma parte vinculada.", color=ft.Colors.GREY_500, italic=True, size=13)
+        )
+
+    # ── Prazos (read-only) ──
+    prazos_col = ft.Column(spacing=6)
+    for p in prazos:
+        prazos_col.controls.append(
             ft.Container(
                 padding=ft.padding.symmetric(vertical=4, horizontal=8),
                 border_radius=8, bgcolor=ft.Colors.GREY_50,
@@ -1011,63 +1185,69 @@ def ver_contrato_dialog(page: ft.Page, contrato: dict, clientes_map: dict):
                             color=ft.Colors.GREY_600, size=13),
                 ], spacing=6),
             )
-            for p in prazos
-        ]
-    else:
-        itens_prazos = [ft.Text("Nenhum prazo cadastrado.",
-                                color=ft.Colors.GREY_500, italic=True, size=13)]
+        )
+    if not prazos:
+        prazos_col.controls.append(
+            ft.Text("Nenhum prazo cadastrado.", color=ft.Colors.GREY_500, italic=True, size=13)
+        )
 
-    if cp_lista:
-        itens_partes = [
-            ft.Container(
-                padding=ft.padding.symmetric(vertical=4, horizontal=8),
-                border_radius=8, bgcolor=ft.Colors.GREY_50,
-                border=ft.border.all(1, ft.Colors.GREY_200),
-                content=ft.Row([
-                    ft.Icon(ft.Icons.PERSON_OUTLINE, size=14, color=ft.Colors.BLUE_400),
-                    ft.Text(
-                        partes_map.get(str(cp.get("parte_id")), {}).get(
-                            "nome", f"ID {cp.get('parte_id')}"),
-                        weight=ft.FontWeight.W_500, size=13,
-                    ),
-                    ft.Text(f"— {cp.get('tipo_vinculo', '-')}",
-                            color=ft.Colors.GREY_600, size=13),
-                ], spacing=6),
-            )
-            for cp in cp_lista
-        ]
-    else:
-        itens_partes = [ft.Text("Nenhuma parte vinculada.",
-                                color=ft.Colors.GREY_500, italic=True, size=13)]
-
+    # ── Anexos (modo ver) ──
     secao_anexos = _build_secao_anexos(page, modo="ver", anexos_existentes=anexos)
 
     dialog = ft.AlertDialog(
         modal=True,
         title=ft.Text(contrato.get("nome", ""), weight=ft.FontWeight.BOLD),
         content=ft.Container(
-            height=540,
+            height=660,
             content=ft.Column(
                 [
-                    ft.Text(f"Cliente: {nome_cliente}", size=13),
-                    ft.Text(f"Responsável: {contrato.get('responsavel') or '-'}", size=13),
-                    ft.Text(f"Assinatura: {data_db_para_br(contrato.get('data_assinatura'))}", size=13),
-                    ft.Text(f"Início: {data_db_para_br(contrato.get('data_inicial'))}", size=13),
-                    ft.Text(f"Vigência: {contrato.get('vigencia') or '-'} meses", size=13),
-                    ft.Text(f"Fim: {data_db_para_br(contrato.get('termo_final'))}", size=13),
-                    ft.Divider(),
-                    ft.Text("Partes:", weight=ft.FontWeight.BOLD, size=13),
-                    *itens_partes,
-                    ft.Divider(),
-                    ft.Text("Prazos:", weight=ft.FontWeight.BOLD, size=13),
-                    *itens_prazos,
-                    ft.Divider(),
+                    ft.Row([dd_cliente, dd_tipo_contrato], spacing=12),
+
+                    ft.Column([
+                        ft.Row([ft.Text("Partes", weight=ft.FontWeight.BOLD, size=14)]),
+                        partes_col,
+                    ], spacing=8),
+
+                    ft.Divider(height=1),
+
+                    tf_resp,
+                    tf_indice,
+                    tf_clausulas,
+
+                    ft.Row(
+                        spacing=20,
+                        wrap=True,
+                        controls=[
+                            ft.Column(spacing=6, controls=[
+                                ft.Text("Data inicial:", size=12, color=ft.Colors.GREY_600),
+                                tf_data_ini,
+                            ]),
+                            ft.Column(spacing=6, controls=[
+                                ft.Text("Data assinatura:", size=12, color=ft.Colors.GREY_600),
+                                tf_data_ass,
+                            ]),
+                        ],
+                    ),
+
+                    ft.Row([tf_vig, tf_fim], spacing=16),
+
+                    ft.Divider(height=1),
+
+                    ft.Column([
+                        ft.Text("Prazos", weight=ft.FontWeight.BOLD, size=14),
+                        prazos_col,
+                    ], spacing=8),
+
+                    ft.Divider(height=1),
                     secao_anexos["widget"],
                 ],
-                spacing=8, scroll=ft.ScrollMode.AUTO,
+                spacing=10,
+                scroll=ft.ScrollMode.AUTO,
             ),
         ),
-        actions=[ft.TextButton("Fechar", on_click=lambda e: _fechar_dialog(page, dialog))],
+        actions=[
+            ft.TextButton("Fechar", on_click=lambda e: _fechar_dialog(page, dialog)),
+        ],
     )
 
     _abrir_dialog(page, dialog)
