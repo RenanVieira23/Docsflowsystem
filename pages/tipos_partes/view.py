@@ -54,28 +54,28 @@ class TiposPartesView(ft.Column):
         self.lista_prazos    = ft.Column(spacing=4)
 
         # ── campos de novo item ──
-        self.tf_parte    = ft.TextField(label="Novo tipo de parte (ex: Réu, Autor...)",    expand=True, dense=True)
-        self.tf_contrato = ft.TextField(label="Novo tipo de contrato (ex: Locação...)",    expand=True, dense=True)
-        self.tf_prazo    = ft.TextField(label="Novo tipo de prazo (ex: Vencimento...)",    expand=True, dense=True)
+        self.tf_parte    = ft.TextField(label="Nova categoria de parte (ex: Réu, Autor...)",    expand=True, dense=True)
+        self.tf_contrato = ft.TextField(label="Nova categoria de contrato (ex: Locação...)",    expand=True, dense=True)
+        self.tf_prazo    = ft.TextField(label="Nova categoria de prazo (ex: Vencimento...)",    expand=True, dense=True)
 
         # ── layout ──
         self.controls = [
             self._bloco(
-                "Tipos de Partes",
+                "Categorias de Partes",
                 "Tipos de vínculo das partes nos contratos (tabela vínculos)",
                 self.tf_parte,
                 lambda e: self._add_parte(),
                 self.lista_partes,
             ),
             self._bloco(
-                "Tipos de Contratos",
+                "Categorias de Contratos",
                 "Classificações de contratos",
                 self.tf_contrato,
                 lambda e: self._add_contrato(),
                 self.lista_contratos,
             ),
             self._bloco(
-                "Tipos de Prazos",
+                "Categorias de Prazos",
                 "Classificações de prazos e alertas",
                 self.tf_prazo,
                 lambda e: self._add_prazo(),
@@ -149,7 +149,7 @@ class TiposPartesView(ft.Column):
 
         if not dados:
             lista.controls.append(
-                ft.Text("Nenhum tipo cadastrado.", color=ft.Colors.GREY_500, italic=True, size=13))
+                ft.Text("Nenhuma categoria cadastrada.", color=ft.Colors.GREY_500, italic=True, size=13))
             return
 
         for item in dados:
@@ -206,7 +206,7 @@ class TiposPartesView(ft.Column):
                 dlg = ft.AlertDialog(
                     modal=True,
                     title=ft.Text("Confirmar exclusão"),
-                    content=ft.Text(f"Excluir o tipo '{i.get('tipo')}'?"),
+                    content=ft.Text(f"Excluir a categoria '{i.get('tipo')}'?"),
                     actions=[
                         ft.TextButton("Cancelar", on_click=lambda e, d=None: self._fechar(dlg)),
                         ft.FilledButton("Excluir",
@@ -234,7 +234,7 @@ class TiposPartesView(ft.Column):
 
         if not dados:
             lista.controls.append(
-                ft.Text("Nenhum tipo cadastrado.", color=ft.Colors.GREY_500, italic=True, size=13))
+                ft.Text("Nenhuma categoria cadastrada.", color=ft.Colors.GREY_500, italic=True, size=13))
             return
 
         for item in dados:
@@ -315,7 +315,7 @@ class TiposPartesView(ft.Column):
     def _add_parte(self):
         nome = (self.tf_parte.value or "").strip()
         if not nome:
-            self._snack("Digite o nome do tipo."); return
+            self._snack("Digite o nome da categoria."); return
         if not self.tenant_id:
             self._snack("tenant_id não disponível. Faça login novamente."); return
         resultado = add_vinculo(nome, self.tenant_id)
@@ -328,7 +328,7 @@ class TiposPartesView(ft.Column):
     def _add_contrato(self):
         nome = (self.tf_contrato.value or "").strip()
         if not nome:
-            self._snack("Digite o nome do tipo."); return
+            self._snack("Digite o nome da categoria."); return
         try:
             add_tipo_contrato(nome, self.tenant_id)
         except Exception as ex:
@@ -340,7 +340,7 @@ class TiposPartesView(ft.Column):
     def _add_prazo(self):
         nome = (self.tf_prazo.value or "").strip()
         if not nome:
-            self._snack("Digite o nome do tipo."); return
+            self._snack("Digite o nome da categoria."); return
         try:
             add_tipo_prazo(nome, self.tenant_id)
         except Exception as ex:

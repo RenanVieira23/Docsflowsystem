@@ -203,7 +203,7 @@ def _build_secao_partes(page, partes_bd, vinculos_bd, cp_existentes=None):
         )
         dd_tipo = ft.Dropdown(
             options=opts_vinculos, value=tipo_vinculo,
-            hint_text="Tipo de vínculo", width=180, dense=True,
+            hint_text="Categoria de vínculo", width=180, dense=True,
         )
 
         def remover(e):
@@ -495,7 +495,7 @@ def novo_contrato_dialog(page: ft.Page, atualizar_lista):
     )
 
     dd_tipo_contrato = ft.Dropdown(
-        label="Tipo de contrato",
+        label="Categoria de contrato",
         width=260,
         options=[
             ft.dropdown.Option(t["nome"], t["nome"])
@@ -780,7 +780,7 @@ def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
     )
 
     dd_tipo_contrato = ft.Dropdown(
-        label="Tipo de contrato",
+        label="Categoria de contrato",
         width=260,
         value=contrato.get("tipo_contrato"),
         options=[ft.dropdown.Option(t["nome"], t["nome"]) for t in tipos_contrato],
@@ -1080,7 +1080,7 @@ def ver_contrato_dialog(page: ft.Page, contrato: dict, clientes_map: dict):
     )
 
     dd_tipo_contrato = ft.Dropdown(
-        label="Tipo de contrato",
+        label="Categoria de contrato",
         width=260,
         value=contrato.get("tipo_contrato"),
         options=[ft.dropdown.Option(t["nome"], t["nome"]) for t in tipos_contrato],
