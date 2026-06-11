@@ -52,24 +52,23 @@ def criar_usuario_dialog(page: ft.Page, tenant_id: str, on_save):
         can_reveal_password=True,
     )
 
-    dd_role = ft.Dropdown(
-        label="Perfil",
-        width=180,
-        value="user",
-        options=[
-            ft.dropdown.Option("user", "Usuário"),
-            ft.dropdown.Option("admin", "Administrador"),
-        ],
-    )
-
     sw_admin = ft.Switch(
         label="É administrador do tenant",
         value=False,
     )
 
-    lbl_erro = ft.Text("", color=ft.Colors.RED_700, size=12)
+    lbl_erro = ft.Text(
+        "",
+        color=ft.Colors.RED_700,
+        size=12
+    )
 
-    loading = ft.ProgressRing(visible=False, width=18, height=18, stroke_width=2)
+    loading = ft.ProgressRing(
+        visible=False,
+        width=18,
+        height=18,
+        stroke_width=2
+    )
 
     btn_salvar = ft.FilledButton("Criar usuário")
 
@@ -106,8 +105,8 @@ def criar_usuario_dialog(page: ft.Page, tenant_id: str, on_save):
             senha=senha,
             nome_usuario=nome,
             tenant_id=tenant_id,
-            role=dd_role.value,
-            is_admin=sw_admin.value,
+            role="user",                 # sempre usuário
+            is_admin=sw_admin.value,     # administrador do tenant
         )
 
         btn_salvar.disabled = False
@@ -136,7 +135,7 @@ def criar_usuario_dialog(page: ft.Page, tenant_id: str, on_save):
                     tf_email,
                     tf_senha,
                     tf_senha2,
-                    ft.Row([dd_role, sw_admin], spacing=16, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                    sw_admin,
                     lbl_erro,
                 ],
                 spacing=12,
@@ -144,8 +143,15 @@ def criar_usuario_dialog(page: ft.Page, tenant_id: str, on_save):
             ),
         ),
         actions=[
-            ft.TextButton("Cancelar", on_click=lambda e: _fechar(dialog, page)),
-            ft.Row([loading, btn_salvar], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            ft.TextButton(
+                "Cancelar",
+                on_click=lambda e: _fechar(dialog, page)
+            ),
+            ft.Row(
+                [loading, btn_salvar],
+                spacing=8,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
         ],
         actions_alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
     )
@@ -169,7 +175,7 @@ def editar_usuario_dialog(page: ft.Page, usuario: dict, on_save):
         label="E-mail",
         value=usuario.get("email", ""),
         width=380,
-        disabled=True,   # e-mail não pode ser alterado aqui (muda no Auth)
+        disabled=True,   # e-mail é alterado apenas no Auth
     )
 
     tf_senha = ft.TextField(
@@ -179,22 +185,16 @@ def editar_usuario_dialog(page: ft.Page, usuario: dict, on_save):
         can_reveal_password=True,
     )
 
-    dd_role = ft.Dropdown(
-        label="Perfil",
-        width=180,
-        value=usuario.get("role", "user"),
-        options=[
-            ft.dropdown.Option("user", "Usuário"),
-            ft.dropdown.Option("admin", "Administrador"),
-        ],
-    )
-
     sw_admin = ft.Switch(
         label="É administrador do tenant",
         value=bool(usuario.get("is_admin", False)),
     )
 
-    lbl_erro = ft.Text("", color=ft.Colors.RED_700, size=12)
+    lbl_erro = ft.Text(
+        "",
+        color=ft.Colors.RED_700,
+        size=12
+    )
 
     def salvar(e):
 
@@ -209,18 +209,23 @@ def editar_usuario_dialog(page: ft.Page, usuario: dict, on_save):
 
         dados = {
             "usuario": nome,
-            "role": dd_role.value,
+            "role": "user",              # sempre usuário
             "is_admin": sw_admin.value,
         }
 
         if tf_senha.value.strip():
+
             if len(tf_senha.value.strip()) < 6:
                 lbl_erro.value = "Senha deve ter ao menos 6 caracteres."
                 page.update()
                 return
+
             dados["senha"] = tf_senha.value.strip()
 
-        resultado = update_usuario_admin(usuario["id"], dados)
+        resultado = update_usuario_admin(
+            usuario["id"],
+            dados
+        )
 
         if isinstance(resultado, dict) and resultado.get("_error"):
             lbl_erro.value = f"Erro: {resultado['_error']}"
@@ -234,7 +239,9 @@ def editar_usuario_dialog(page: ft.Page, usuario: dict, on_save):
 
     dialog = ft.AlertDialog(
         modal=True,
-        title=ft.Text(f"Editar — {usuario.get('usuario', '')}"),
+        title=ft.Text(
+            f"Editar — {usuario.get('usuario', '')}"
+        ),
         content=ft.Container(
             width=420,
             content=ft.Column(
@@ -242,7 +249,7 @@ def editar_usuario_dialog(page: ft.Page, usuario: dict, on_save):
                     tf_nome,
                     tf_email,
                     tf_senha,
-                    ft.Row([dd_role, sw_admin], spacing=16, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                    sw_admin,
                     lbl_erro,
                 ],
                 spacing=12,
@@ -250,8 +257,14 @@ def editar_usuario_dialog(page: ft.Page, usuario: dict, on_save):
             ),
         ),
         actions=[
-            ft.TextButton("Cancelar", on_click=lambda e: _fechar(dialog, page)),
-            ft.FilledButton("Salvar alterações", on_click=salvar),
+            ft.TextButton(
+                "Cancelar",
+                on_click=lambda e: _fechar(dialog, page)
+            ),
+            ft.FilledButton(
+                "Salvar alterações",
+                on_click=salvar,
+            ),
         ],
         actions_alignment=ft.MainAxisAlignment.END,
     )
