@@ -521,7 +521,7 @@ def novo_contrato_dialog(page: ft.Page, atualizar_lista):
     tf_indice = ft.TextField(
         label="Identificador",
         width=380,
-        hint_text="Ex: IPCA, IGPM, INPC..."
+        hint_text="Identificador do contrato"
     )
 
     # ======================================================
