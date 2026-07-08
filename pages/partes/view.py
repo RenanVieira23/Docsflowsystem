@@ -2,6 +2,7 @@ import flet as ft
 import asyncio
 
 from database.models import get_partes
+from database.supabase_client import run_db
 from pages.partes.form import nova_parte_dialog, editar_parte_dialog
 
 
@@ -15,6 +16,7 @@ class PartesView(ft.Column):
         super().__init__(expand=True, spacing=10)
 
         self.app_page = page
+        self.tenant_id = page.local_store.get("tenant_id") if hasattr(page, "local_store") else None
         self.page_size = 10
         self.current_page = 1
         self.partes = []
@@ -116,28 +118,8 @@ class PartesView(ft.Column):
         self.loading.visible = True
         self.app_page.update()
 
-        tenant_id = None
-
         try:
-            if hasattr(self.app_page, "local_store") and self.app_page.local_store:
-                tenant_id = self.app_page.local_store.get("tenant_id")
-        except Exception:
-            pass
-
-        if not tenant_id:
-            try:
-                tenant_id = self.app_page.session.get("tenant_id")
-            except Exception:
-                pass
-
-        if not tenant_id:
-            print("❌ Tenant não encontrado.")
-            self.loading.visible = False
-            self.app_page.update()
-            return
-
-        try:
-            dados = await asyncio.to_thread(get_partes, tenant_id)
+            dados = await run_db(self.app_page, get_partes, self.tenant_id)
         except Exception as ex:
             print("Erro partes:", ex)
             dados = []
@@ -146,6 +128,7 @@ class PartesView(ft.Column):
         self.current_page = 1
         self.loading.visible = False
         self._aplicar_filtro()
+
 
     def recarregar(self, e=None):
         self.app_page.run_task(self._carregar_dados)

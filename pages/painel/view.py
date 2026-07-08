@@ -2,6 +2,7 @@ import flet as ft
 import asyncio
 
 from database.models import get_alertas_por_periodo
+from database.supabase_client import run_db
 from utils.dataptbr import data_db_para_br
 from utils.table_sort import SortState
 
@@ -104,7 +105,7 @@ class PainelAlertasView(ft.Column):
         self.update()
 
         try:
-            dados = await asyncio.to_thread(get_alertas_por_periodo, self.dias)
+            dados = await run_db(self.app_page, get_alertas_por_periodo, self.dias)
         except Exception as ex:
             print("Erro painel alertas:", ex)
             dados = []

@@ -1,10 +1,11 @@
 import flet as ft
-import threading
+import asyncio
 
 from pages.login.view import login_view
 from pages import dashboard, clientes, contratos, relatorios, painel
 from pages.admin.view import admin_view
 from database.models import registrar_log
+from database.supabase_client import new_session_client, run_db
 from pages.partes.view import partes_view
 from pages.tipos_partes.view import tipos_partes_view
 from pages.alertas_cadastro.view import alertas_cadastro_view
@@ -23,6 +24,18 @@ def _as_bool(v):
 
 def main(page: ft.Page):
 
+    page.local_store = {}
+
+    # =========================================================
+    # FIX MULTI-SESSÃO: cria um client Supabase isolado para
+    # ESTA sessão específica e guarda em page.local_store, que
+    # é único por sessão/conexão. Esse client é passado
+    # explicitamente a cada consulta via run_db() (ver models.py
+    # e as páginas), garantindo que o token de autenticação de
+    # um usuário NUNCA seja usado nas consultas de outro usuário.
+    # =========================================================
+    page.local_store["supabase_client"] = new_session_client()
+
     page.title = "DocsFlow System"
     page.theme_mode = ft.ThemeMode.LIGHT
     page.bgcolor = ft.Colors.GREY_50
@@ -30,7 +43,6 @@ def main(page: ft.Page):
     page.window_width = 1200
     page.window_height = 720
 
-    page.local_store = {}
     views_cache = {}
 
     from app.filepicker import FilePickerService
@@ -41,18 +53,19 @@ def main(page: ft.Page):
 
     # =========================================================
     # FIX RLS: log_async agora passa tenant_id para registrar_log
+    # e roda via asyncio.to_thread (propaga o contexto da sessão
+    # corretamente e evita threads soltas sem controle).
     # =========================================================
     def log_async(usuario_id, acao):
-        # lê tenant_id do store no momento da chamada
         tenant_id = page.local_store.get("tenant_id")
 
-        def run():
+        async def run():
             try:
-                registrar_log(usuario_id, acao, tenant_id=tenant_id)
+                await run_db(page, registrar_log, usuario_id, acao, tenant_id=tenant_id)
             except Exception:
                 pass
 
-        threading.Thread(target=run, daemon=True).start()
+        page.run_task(run)
 
     def get_view(route):
 

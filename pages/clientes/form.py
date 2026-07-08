@@ -2,6 +2,7 @@ import flet as ft
 
 from utils.sigla import gerar_sigla
 from database.models import add_cliente, update_cliente
+from database.supabase_client import run_db
 
 
 # ======================================================
@@ -39,7 +40,7 @@ def novo_cliente_dialog(page: ft.Page, atualizar_tabela):
     # -------------------------
     # SALVAR
     # -------------------------
-    def salvar(e):
+    async def salvar(e):
 
         if not tf_nome.value or not dd_tipo.value or not tf_documento.value:
             _snack(page, "Preencha todos os campos obrigatórios.")
@@ -48,7 +49,9 @@ def novo_cliente_dialog(page: ft.Page, atualizar_tabela):
         sigla_auto = gerar_sigla(tf_nome.value)
 
         try:
-            add_cliente(
+            await run_db(
+                page,
+                add_cliente,
                 {
                     "nome": tf_nome.value,
                     "tipo": dd_tipo.value,
@@ -142,14 +145,16 @@ def editar_cliente_dialog(
     # -------------------------
     # SALVAR
     # -------------------------
-    def salvar(e):
+    async def salvar(e):
 
         if not tf_nome.value or not dd_tipo.value or not tf_documento.value:
             _snack(page, "Preencha todos os campos obrigatórios.")
             return
 
         try:
-            update_cliente(
+            await run_db(
+                page,
+                update_cliente,
                 cliente["id"],
                 {
                     "nome": tf_nome.value,

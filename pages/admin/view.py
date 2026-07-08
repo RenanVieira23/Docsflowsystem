@@ -6,6 +6,7 @@ from database.models import (
     get_usuarios,
     delete_usuario_admin,
 )
+from database.supabase_client import run_db
 from pages.admin.form import criar_usuario_dialog, editar_usuario_dialog
 
 
@@ -111,11 +112,11 @@ class AdminView(ft.Column):
 
         try:
             if self.tenant_id:
-                dados = await asyncio.to_thread(
-                    get_usuarios_do_tenant, self.tenant_id
+                dados = await run_db(
+                    self.app_page, get_usuarios_do_tenant, self.tenant_id
                 )
             else:
-                dados = await asyncio.to_thread(get_usuarios)
+                dados = await run_db(self.app_page, get_usuarios)
         except Exception as ex:
             print("Erro admin usuários:", ex)
             dados = []

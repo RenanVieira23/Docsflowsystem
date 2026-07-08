@@ -6,14 +6,16 @@ Página unificada de Tipos com 3 seções:
   2. Tipos de Contrato→ tabela tipos_contratos (campo "nome")
   3. Tipos de Prazos  → tabela tipos_prazos    (campo "nome")
 
-BUGS corrigidos vs versão anterior:
-  - self.page.run_task() → self.app_page.run_task()  (evita AttributeError)
-  - Tipos de Partes agora usa tabela vinculos (não tipos_partes)
-  - tenant_id passado corretamente para vinculos
+FIX (esta versão):
+  - Todos os handlers que escrevem no banco (_add_parte, _add_contrato,
+    _add_prazo, _salvar de cada linha, _excluir_vinculo, _excluir_nome)
+    agora são `async def` e chamam o banco via run_db(self.app_page, ...),
+    garantindo que rodem com o client AUTENTICADO da sessão. Antes,
+    essas chamadas eram síncronas e caíam num client sem token,
+    causando "new row violates row-level security policy".
 """
 
 import flet as ft
-import asyncio
 
 from database.models import (
     # ── vinculos (tipos de partes) ──
@@ -34,6 +36,7 @@ from database.models import (
     update_tipo_prazo,
     delete_tipo_prazo,
 )
+from database.supabase_client import run_db
 
 
 # ======================================================
@@ -64,21 +67,21 @@ class TiposPartesView(ft.Column):
                 "Categorias de Partes",
                 "Tipos de vínculo das partes nos contratos (tabela vínculos)",
                 self.tf_parte,
-                lambda e: self._add_parte(),
+                lambda e: self.app_page.run_task(self._add_parte),
                 self.lista_partes,
             ),
             self._bloco(
                 "Categorias de Contratos",
                 "Classificações de contratos",
                 self.tf_contrato,
-                lambda e: self._add_contrato(),
+                lambda e: self.app_page.run_task(self._add_contrato),
                 self.lista_contratos,
             ),
             self._bloco(
                 "Categorias de Prazos",
                 "Classificações de prazos e alertas",
                 self.tf_prazo,
-                lambda e: self._add_prazo(),
+                lambda e: self.app_page.run_task(self._add_prazo),
                 self.lista_prazos,
             ),
         ]
@@ -122,9 +125,9 @@ class TiposPartesView(ft.Column):
     async def _carregar_tudo(self):
         try:
             # vinculos precisam de tenant_id
-            partes    = await asyncio.to_thread(get_vinculos, self.tenant_id)
-            contratos = await asyncio.to_thread(get_tipos_contratos, self.tenant_id)
-            prazos    = await asyncio.to_thread(get_tipos_prazos, self.tenant_id)
+            partes    = await run_db(self.app_page, get_vinculos, self.tenant_id)
+            contratos = await run_db(self.app_page, get_tipos_contratos, self.tenant_id)
+            prazos    = await run_db(self.app_page, get_tipos_prazos, self.tenant_id)
         except Exception as ex:
             print("Erro tipos:", ex)
             partes = contratos = prazos = []
@@ -185,12 +188,12 @@ class TiposPartesView(ft.Column):
                 be.visible = False; bs.visible = True; bc.visible = True; bx.visible = False
                 self.app_page.update()
 
-            def _salvar(e, i=item, t=tf):
+            async def _salvar(e, i=item, t=tf):
                 novo = (t.value or "").strip()
                 if not novo:
                     return
                 try:
-                    update_vinculo(i["id"], {"tipo": novo})
+                    await run_db(self.app_page, update_vinculo, i["id"], {"tipo": novo})
                 except Exception as ex:
                     self._snack(f"Erro: {ex}"); return
                 self.app_page.run_task(self._carregar_tudo)
@@ -211,7 +214,7 @@ class TiposPartesView(ft.Column):
                         ft.TextButton("Cancelar", on_click=lambda e, d=None: self._fechar(dlg)),
                         ft.FilledButton("Excluir",
                                         style=ft.ButtonStyle(bgcolor=ft.Colors.RED),
-                                        on_click=lambda e, ii=i: self._excluir_vinculo(ii, dlg)),
+                                        on_click=lambda e, ii=i: self.app_page.run_task(self._excluir_vinculo, ii, dlg)),
                     ],
                 )
                 self.app_page.overlay.append(dlg)
@@ -269,11 +272,11 @@ class TiposPartesView(ft.Column):
                 be.visible = False; bs.visible = True; bc.visible = True; bx.visible = False
                 self.app_page.update()
 
-            def _salvar(e, i=item, t=tf, uf=update_func):
+            async def _salvar(e, i=item, t=tf, uf=update_func):
                 novo = (t.value or "").strip()
                 if not novo: return
                 try:
-                    uf(i["id"], {"nome": novo})
+                    await run_db(self.app_page, uf, i["id"], {"nome": novo})
                 except Exception as ex:
                     self._snack(f"Erro: {ex}"); return
                 self.app_page.run_task(self._carregar_tudo)
@@ -294,7 +297,7 @@ class TiposPartesView(ft.Column):
                         ft.TextButton("Cancelar", on_click=lambda e: self._fechar(dlg)),
                         ft.FilledButton("Excluir",
                                         style=ft.ButtonStyle(bgcolor=ft.Colors.RED),
-                                        on_click=lambda e, ii=i, ddf=df: self._excluir_nome(ii, ddf, dlg)),
+                                        on_click=lambda e, ii=i, ddf=df: self.app_page.run_task(self._excluir_nome, ii, ddf, dlg)),
                     ],
                 )
                 self.app_page.overlay.append(dlg)
@@ -312,37 +315,40 @@ class TiposPartesView(ft.Column):
     # ADD
     # ======================================================
 
-    def _add_parte(self):
+    async def _add_parte(self):
         nome = (self.tf_parte.value or "").strip()
         if not nome:
             self._snack("Digite o nome da categoria."); return
         if not self.tenant_id:
             self._snack("tenant_id não disponível. Faça login novamente."); return
-        resultado = add_vinculo(nome, self.tenant_id)
+        try:
+            resultado = await run_db(self.app_page, add_vinculo, nome, self.tenant_id)
+        except Exception as ex:
+            self._snack(f"Erro: {ex}"); return
         if isinstance(resultado, dict) and resultado.get("_error"):
             self._snack(f"Erro: {resultado['_error']}"); return
         self.tf_parte.value = ""
         self.app_page.run_task(self._carregar_tudo)
         self._snack(f"'{nome}' adicionado.")
 
-    def _add_contrato(self):
+    async def _add_contrato(self):
         nome = (self.tf_contrato.value or "").strip()
         if not nome:
             self._snack("Digite o nome da categoria."); return
         try:
-            add_tipo_contrato(nome, self.tenant_id)
+            await run_db(self.app_page, add_tipo_contrato, nome, self.tenant_id)
         except Exception as ex:
             self._snack(f"Erro: {ex}"); return
         self.tf_contrato.value = ""
         self.app_page.run_task(self._carregar_tudo)
         self._snack(f"'{nome}' adicionado.")
 
-    def _add_prazo(self):
+    async def _add_prazo(self):
         nome = (self.tf_prazo.value or "").strip()
         if not nome:
             self._snack("Digite o nome da categoria."); return
         try:
-            add_tipo_prazo(nome, self.tenant_id)
+            await run_db(self.app_page, add_tipo_prazo, nome, self.tenant_id)
         except Exception as ex:
             self._snack(f"Erro: {ex}"); return
         self.tf_prazo.value = ""
@@ -353,18 +359,18 @@ class TiposPartesView(ft.Column):
     # DELETE helpers
     # ======================================================
 
-    def _excluir_vinculo(self, item, dlg):
+    async def _excluir_vinculo(self, item, dlg):
         try:
-            delete_vinculo(item["id"])
+            await run_db(self.app_page, delete_vinculo, item["id"])
         except Exception as ex:
             self._snack(f"Erro: {ex}")
         dlg.open = False
         self.app_page.run_task(self._carregar_tudo)
         self.app_page.update()
 
-    def _excluir_nome(self, item, delete_func, dlg):
+    async def _excluir_nome(self, item, delete_func, dlg):
         try:
-            delete_func(item["id"])
+            await run_db(self.app_page, delete_func, item["id"])
         except Exception as ex:
             self._snack(f"Erro: {ex}")
         dlg.open = False

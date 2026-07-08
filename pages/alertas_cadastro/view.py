@@ -8,6 +8,7 @@ from database.models import (
     add_prazo,
     get_prazos_por_contrato,
 )
+from database.supabase_client import run_db
 from utils.dataptbr import data_br_para_db, data_db_para_br
 from utils.calendario_ptbr import calendario_ptbr
 
@@ -76,8 +77,8 @@ class AlertasCadastroView(ft.Column):
         self.app_page.update()
 
         try:
-            contratos = await asyncio.to_thread(get_contratos, self.tenant_id)
-            clientes  = await asyncio.to_thread(get_clientes, self.tenant_id)
+            contratos = await run_db(self.app_page, get_contratos, self.tenant_id)
+            clientes  = await run_db(self.app_page, get_clientes, self.tenant_id)
         except Exception as ex:
             print("Erro alertas_cadastro:", ex)
             contratos = clientes = []
@@ -132,7 +133,7 @@ class AlertasCadastroView(ft.Column):
 
                         ft.FilledTonalButton(
                             "Ver / + Prazo",
-                            on_click=lambda e, cc=c: self._selecionar(cc),
+                            on_click=lambda e, cc=c: self.app_page.run_task(self._selecionar, cc),
                         ),
                     ]),
                 )
@@ -140,14 +141,14 @@ class AlertasCadastroView(ft.Column):
 
         self.app_page.update()
 
-    def _selecionar(self, contrato):
+    async def _selecionar(self, contrato):
         self.selecionado = contrato
         self._render_lista()
-        self._build_painel(contrato)
+        await self._build_painel(contrato)
 
-    def _build_painel(self, contrato):
+    async def _build_painel(self, contrato):
 
-        tipos_p = get_tipos_prazos_db(self.tenant_id) or []
+        tipos_p = await run_db(self.app_page, get_tipos_prazos_db, self.tenant_id) or []
 
         # =============================
         # CAMPOS
@@ -174,10 +175,10 @@ class AlertasCadastroView(ft.Column):
             dd_tp.value = None
             lbl_err.value = ""
 
-        def _refresh_prazos():
+        async def _refresh_prazos():
             prazos_col.controls.clear()
 
-            prazos = get_prazos_por_contrato(contrato["id"]) or []
+            prazos = await run_db(self.app_page, get_prazos_por_contrato, contrato["id"]) or []
 
             if not prazos:
                 prazos_col.controls.append(
@@ -208,14 +209,15 @@ class AlertasCadastroView(ft.Column):
         # SALVAR PRAZO
         # =============================
 
-        def salvar(e):
+        async def salvar(e):
 
             if not tf_dt.value:
                 lbl_err.value = "Selecione data"
                 self.app_page.update()
                 return
 
-            add_prazo(
+            await run_db(
+                self.app_page, add_prazo,
                 contrato_id=contrato["id"],
                 meses=None,
                 observacao=tf_ob.value,
@@ -224,7 +226,7 @@ class AlertasCadastroView(ft.Column):
                 tenant_id=self.tenant_id,
             )
 
-            _refresh_prazos()
+            await _refresh_prazos()
             _limpar_campos()
 
             _snack(self.app_page, "Prazo adicionado!")
@@ -240,7 +242,7 @@ class AlertasCadastroView(ft.Column):
         # PRIMEIRO CARREGAMENTO
         # =============================
 
-        _refresh_prazos()
+        await _refresh_prazos()
 
         # =============================
         # UI

@@ -1,5 +1,6 @@
 import flet as ft
 import asyncio
+from database.supabase_client import run_db
 from database.models import (
     get_clientes,
     get_contratos,
@@ -70,11 +71,11 @@ def dashboard_view(page: ft.Page):
         tenant_id = page.local_store.get("tenant_id") if hasattr(page, "local_store") else None
 
         try:
-            clientes   = await asyncio.to_thread(get_clientes,  tenant_id) or []
-            contratos  = await asyncio.to_thread(get_contratos, tenant_id) or []
-            tot_prazos = await asyncio.to_thread(get_total_prazos) or 0
-            enviados   = await asyncio.to_thread(get_total_alertas_enviados) or 0
-            alertas    = await asyncio.to_thread(get_alertas_por_periodo, 30) or []
+            clientes   = await run_db(page, get_clientes,  tenant_id) or []
+            contratos  = await run_db(page, get_contratos, tenant_id) or []
+            tot_prazos = await run_db(page, get_total_prazos) or 0
+            enviados   = await run_db(page, get_total_alertas_enviados) or 0
+            alertas    = await run_db(page, get_alertas_por_periodo, 30) or []
         except Exception as ex:
             print("Erro dashboard:", ex)
             clientes = contratos = alertas = []

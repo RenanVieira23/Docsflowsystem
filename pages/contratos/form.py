@@ -36,7 +36,7 @@ import time
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 
-
+from database.supabase_client import run_db
 from database.models import (
     add_contrato,
     update_contrato,
@@ -468,17 +468,17 @@ def _build_secao_anexos(page, modo, anexos_existentes=None):
 # NOVO CONTRATO
 # ======================================================
 
-def novo_contrato_dialog(page: ft.Page, atualizar_lista):
+async def novo_contrato_dialog(page: ft.Page, atualizar_lista):
 
     tenant_id = _get_tenant(page)
     if not tenant_id:
         _snack(page, "Tenant não identificado. Faça login novamente.")
         return
 
-    clientes        = get_clientes(tenant_id) or []
-    partes_bd       = get_partes() or []
-    vinculos_bd     = get_vinculos(tenant_id) or []
-    tipos_contrato  = get_tipos_contratos(tenant_id) or []
+    clientes        = await run_db(page, get_clientes, tenant_id) or []
+    partes_bd       = await run_db(page, get_partes, tenant_id) or []
+    vinculos_bd     = await run_db(page, get_vinculos, tenant_id) or []
+    tipos_contrato  = await run_db(page, get_tipos_contratos, tenant_id) or []
 
     if not clientes:
         _snack(page, "Nenhum cliente cadastrado.")
@@ -612,7 +612,7 @@ def novo_contrato_dialog(page: ft.Page, atualizar_lista):
     # SALVAR
     # ======================================================
 
-    def salvar(e):
+    async def salvar(e):
 
         if not dd_cliente.value or not tf_data_ini.value:
             _snack(page, "Cliente e data inicial são obrigatórios.")
@@ -627,13 +627,11 @@ def novo_contrato_dialog(page: ft.Page, atualizar_lista):
             return
 
         cli  = next(c for c in clientes if str(c["id"]) == dd_cliente.value)
-        nome = _gerar_nome(
-            cli["sigla"],
-            get_contratos_por_cliente(cli["id"], tenant_id)
-        )
+        contratos_do_cliente = await run_db(page, get_contratos_por_cliente, cli["id"], tenant_id)
+        nome = _gerar_nome(cli["sigla"], contratos_do_cliente)
 
         try:
-            novo = add_contrato({
+            novo = await run_db(page, add_contrato, {
                 "tenant_id":       tenant_id,
                 "nome":            nome,
                 "cliente_id":      cli["id"],
@@ -657,7 +655,8 @@ def novo_contrato_dialog(page: ft.Page, atualizar_lista):
 
             for ln in secao_partes["linhas"]:
                 if ln["dd_parte"].value and ln["dd_tipo"].value:
-                    add_contrato_parte(
+                    await run_db(
+                        page, add_contrato_parte,
                         novo["id"],
                         int(ln["dd_parte"].value),
                         ln["dd_tipo"].value
@@ -665,7 +664,8 @@ def novo_contrato_dialog(page: ft.Page, atualizar_lista):
 
             for arq in secao_anexos["pendentes"]:
                 try:
-                    upload_anexo_storage(
+                    await run_db(
+                        page, upload_anexo_storage,
                         novo["id"],
                         arq["nome"],
                         arq["bytes"]
@@ -749,7 +749,7 @@ def novo_contrato_dialog(page: ft.Page, atualizar_lista):
 # EDITAR CONTRATO
 # ======================================================
 
-def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
+async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
 
     data_base = _parse_db(contrato.get("data_inicial"))
     if not data_base:
@@ -761,9 +761,9 @@ def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
         _snack(page, "Tenant não identificado. Faça login novamente.")
         return
 
-    partes_bd      = get_partes() or []
-    vinculos_bd    = get_vinculos(tenant_id) or []
-    tipos_contrato = get_tipos_contratos(tenant_id) or []
+    partes_bd      = await run_db(page, get_partes, tenant_id) or []
+    vinculos_bd    = await run_db(page, get_vinculos, tenant_id) or []
+    tipos_contrato = await run_db(page, get_tipos_contratos, tenant_id) or []
 
     # ── Mesmos campos do Novo, com valores pré-preenchidos ──
 
@@ -797,7 +797,7 @@ def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
         label="Identificador",
         value=contrato.get("indice") or "",
         width=380,
-        hint_text="Identificador do contrato",
+        hint_text="Ex: IPCA, IGPM, INPC...",
     )
 
     tf_clausulas = ft.TextField(
@@ -858,11 +858,11 @@ def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
     recalcular()
 
     # ── Partes ──
-    cp_existentes = get_contrato_partes(contrato["id"]) or []
+    cp_existentes = await run_db(page, get_contrato_partes, contrato["id"]) or []
     secao_partes  = _build_secao_partes(page, partes_bd, vinculos_bd, cp_existentes)
 
     # ── Prazos ──
-    prazos           = get_prazos_por_contrato(contrato["id"]) or []
+    prazos           = await run_db(page, get_prazos_por_contrato, contrato["id"]) or []
     container_prazos = ft.Column(spacing=6)
     linhas_prazos    = []
     excluir_prazos   = set()
@@ -916,18 +916,18 @@ def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
         page.update()
 
     # ── Anexos ──
-    anexos_existentes = list_anexos_storage(contrato["id"]) or []
+    anexos_existentes = await run_db(page, list_anexos_storage, contrato["id"]) or []
     secao_anexos = _build_secao_anexos(page, modo="editar",
                                        anexos_existentes=anexos_existentes)
 
     # ── Salvar ──
-    def salvar(e):
+    async def salvar(e):
         if tf_vig.value and not _is_int_str(tf_vig.value):
             _snack(page, "Vigência inválida.")
             return
 
         try:
-            update_contrato(contrato["id"], {
+            await run_db(page, update_contrato, contrato["id"], {
                 "tipo_contrato":   dd_tipo_contrato.value or None,
                 "responsavel":     tf_resp.value or "",
                 "indice":          tf_indice.value or None,
@@ -938,7 +938,7 @@ def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
             })
 
             for pid in excluir_prazos:
-                update_prazo(pid, {"ativo": False})
+                await run_db(page, update_prazo, pid, {"ativo": False})
 
             for pid, tf_m, tf_d, tf_o in linhas_prazos:
                 if pid in excluir_prazos:
@@ -951,9 +951,10 @@ def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
                     "observacao":      tf_o.value or "",
                 }
                 if pid:
-                    update_prazo(pid, payload)
+                    await run_db(page, update_prazo, pid, payload)
                 else:
-                    add_prazo(
+                    await run_db(
+                        page, add_prazo,
                         contrato_id=contrato["id"],
                         meses=payload["meses"],
                         observacao=tf_o.value,
@@ -963,7 +964,7 @@ def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
                     )
 
             for cp_id in secao_partes["excluir"]:
-                delete_contrato_parte(cp_id)
+                await run_db(page, delete_contrato_parte, cp_id)
             for ln in secao_partes["linhas"]:
                 cp_id = ln["cp_id"]
                 p_val = ln["dd_parte"].value
@@ -971,13 +972,13 @@ def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
                 if cp_id in secao_partes["excluir"] or not p_val or not t_val:
                     continue
                 if cp_id is None:
-                    add_contrato_parte(contrato["id"], int(p_val), t_val)
+                    await run_db(page, add_contrato_parte, contrato["id"], int(p_val), t_val)
 
             for caminho in secao_anexos["excluir"]:
-                delete_anexo_storage(caminho)
+                await run_db(page, delete_anexo_storage, caminho)
             for arq in secao_anexos["pendentes"]:
                 try:
-                    upload_anexo_storage(contrato["id"], arq["nome"], arq["bytes"])
+                    await run_db(page, upload_anexo_storage, contrato["id"], arq["nome"], arq["bytes"])
                 except Exception as ex:
                     _snack(page, f"Erro upload: {ex}")
 
@@ -1056,16 +1057,16 @@ def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
 # VER CONTRATO (somente leitura)
 # ======================================================
 
-def ver_contrato_dialog(page: ft.Page, contrato: dict, clientes_map: dict):
+async def ver_contrato_dialog(page: ft.Page, contrato: dict, clientes_map: dict):
 
     tenant_id = _get_tenant(page)
 
-    prazos       = get_prazos_por_contrato(contrato["id"]) or []
-    cp_lista     = get_contrato_partes(contrato["id"]) or []
-    todas_partes = get_partes() or []
+    prazos       = await run_db(page, get_prazos_por_contrato, contrato["id"]) or []
+    cp_lista     = await run_db(page, get_contrato_partes, contrato["id"]) or []
+    todas_partes = await run_db(page, get_partes, tenant_id) or []
     partes_map   = {str(p["id"]): p for p in todas_partes}
-    anexos       = list_anexos_storage(contrato["id"]) or []
-    tipos_contrato = get_tipos_contratos(tenant_id) or []
+    anexos       = await run_db(page, list_anexos_storage, contrato["id"]) or []
+    tipos_contrato = await run_db(page, get_tipos_contratos, tenant_id) or []
 
     nome_cliente = clientes_map.get(contrato.get("cliente_id"), "-")
 
@@ -1140,8 +1141,8 @@ def ver_contrato_dialog(page: ft.Page, contrato: dict, clientes_map: dict):
     )
 
     # ── Partes (read-only dropdowns) ──
-    partes_bd   = get_partes() or []
-    vinculos_bd = get_vinculos(tenant_id) or []
+    partes_bd   = await run_db(page, get_partes, tenant_id) or []
+    vinculos_bd = await run_db(page, get_vinculos, tenant_id) or []
     opts_partes   = [ft.dropdown.Option(str(p["id"]), p["nome"]) for p in partes_bd]
     opts_vinculos = [
         ft.dropdown.Option(v.get("tipo") or v.get("nome"))

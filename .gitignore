@@ -1,20 +1,13 @@
-# Virtual env
-venv/
-venv_new/
-.env/
-
-# Python
 __pycache__/
 *.pyc
-*.pyo
-
-# Flet uploads
-/tmp/
-flet_uploads/
-
-# Env variables
+.venv/
+venv/
 .env
 
-# IDE
-.vscode/
-.idea/
+# Relatórios gerados em runtime — nunca devem ir para o repositório
+*.xlsx
+relatorios/
+relatorio_alertas_*.xlsx
+
+# Uploads temporários do Flet
+/tmp/flet_uploads/

@@ -24,6 +24,7 @@ from database.models import (
     update_contrato,
     registrar_log,
 )
+from database.supabase_client import run_db
 
 from pages.contratos.form import novo_contrato_dialog
 
@@ -377,8 +378,8 @@ class ContratosView(ft.Column):
                 contratos = []
                 clientes = []
             else:
-                contratos = await asyncio.to_thread(get_contratos, self.tenant_id)
-                clientes  = await asyncio.to_thread(get_clientes,  self.tenant_id)
+                contratos = await run_db(self.app_page, get_contratos, self.tenant_id)
+                clientes  = await run_db(self.app_page, get_clientes,  self.tenant_id)
 
         except Exception as ex:
             print("Erro contratos:", ex)
@@ -520,15 +521,15 @@ class ContratosView(ft.Column):
     # ======================================================
 
     def novo_contrato(self, e):
-        novo_contrato_dialog(self.app_page, self.recarregar)
+        self.app_page.run_task(novo_contrato_dialog, self.app_page, self.recarregar)
 
     def editar(self, contrato):
         from pages.contratos.form import editar_contrato_dialog
-        editar_contrato_dialog(self.app_page, contrato, self.recarregar)
+        self.app_page.run_task(editar_contrato_dialog, self.app_page, contrato, self.recarregar)
 
     def ver(self, contrato):
         from pages.contratos.form import ver_contrato_dialog
-        ver_contrato_dialog(self.app_page, contrato, self.clientes_map)
+        self.app_page.run_task(ver_contrato_dialog, self.app_page, contrato, self.clientes_map)
 
     async def _log_async(self, acao, nome):
         try:
@@ -544,7 +545,7 @@ class ContratosView(ft.Column):
                 except Exception:
                     usuario = None
             if usuario:
-                await asyncio.to_thread(registrar_log, usuario, acao, nome)
+                await run_db(self.app_page, registrar_log, usuario, acao, nome)
         except Exception:
             pass
 
@@ -562,7 +563,7 @@ class ContratosView(ft.Column):
 
     async def _desativar_async(self, contrato, dialog):
         try:
-            await asyncio.to_thread(update_contrato, contrato["id"], {"ativo": False})
+            await run_db(self.app_page, update_contrato, contrato["id"], {"ativo": False})
             await self._log_async("Desativou contrato", contrato["nome"])
         except Exception as ex:
             print("Erro desativar:", ex)
@@ -574,7 +575,7 @@ class ContratosView(ft.Column):
 
     async def _reativar_async(self, contrato):
         try:
-            await asyncio.to_thread(update_contrato, contrato["id"], {"ativo": True})
+            await run_db(self.app_page, update_contrato, contrato["id"], {"ativo": True})
             await self._log_async("Reativou contrato", contrato["nome"])
         except Exception as ex:
             print("Erro reativar:", ex)

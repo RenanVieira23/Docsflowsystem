@@ -664,29 +664,20 @@ def listar_usuarios_admin():
 
 # ======================================================
 # 👤 PARTES
+# get_partes(tenant_id) filtra explicitamente por tenant_id
+# (além do RLS via JWT) — mesmo padrão de get_clientes(),
+# get_contratos() etc. tenant_id é opcional só por retrocompat;
+# sempre que possível, chame passando o tenant_id da sessão.
+# add_parte: o dict deve conter tenant_id — veja partes/form.py
 # ======================================================
 
-# ======================================================
-# 👤 PARTES
-# ======================================================
-
-def get_partes(tenant_id: str):
-    """
-    Lista as partes do tenant informado.
-    """
+def get_partes(tenant_id: str = None):
     try:
-        client = supabase_admin or supabase
-
-        resp = (
-            client.table("partes")
-            .select("*")
-            .eq("tenant_id", tenant_id)
-            .order("nome")
-            .execute()
-        )
-
-        return resp.data or []
-
+        query = supabase.table("partes").select("*").order("nome")
+        if tenant_id:
+            query = query.eq("tenant_id", tenant_id)
+        resp = _safe_exec(query, "Erro partes")
+        return resp.data if resp else []
     except Exception as e:
         print(f"❌ Erro ao buscar partes: {e}")
         return []
@@ -694,58 +685,33 @@ def get_partes(tenant_id: str):
 
 def add_parte(parte: dict):
     """
-    Espera receber:
-    {
-        "nome": "...",
-        "tipo": "...",
-        "documento": "...",
-        "tenant_id": "..."
-    }
+    parte deve conter tenant_id para passar na política RLS de INSERT.
+    Ex: add_parte({"nome": ..., "tipo": ..., "documento": ..., "tenant_id": tid})
     """
     try:
-        client = supabase_admin or supabase
-
-        if not parte.get("tenant_id"):
-            raise Exception("tenant_id obrigatório.")
-
-        resp = (
-            client.table("partes")
-            .insert(parte)
-            .execute()
-        )
-
+        if "tenant_id" not in parte:
+            raise Exception("tenant_id obrigatório em add_parte")
+        resp = supabase.table("partes").insert(parte).execute()
         return resp.data[0] if resp.data else None
-
     except Exception as e:
         print(f"❌ Erro ao adicionar parte: {e}")
         return None
 
 
 def update_parte(parte_id: int, dados: dict):
-    """
-    dados deve conter tenant_id.
-    """
     try:
-        client = supabase_admin or supabase
-
-        tenant_id = dados.pop("tenant_id", None)
-
-        if not tenant_id:
-            raise Exception("tenant_id obrigatório.")
-
         resp = (
-            client.table("partes")
+            supabase.table("partes")
             .update(dados)
             .eq("id", parte_id)
-            .eq("tenant_id", tenant_id)
             .execute()
         )
-
         return resp.data[0] if resp.data else None
-
     except Exception as e:
         print(f"❌ Erro ao atualizar parte: {e}")
         return None
+
+
 # ======================================================
 # 🏷️ TIPOS DE PARTES
 # (tabela tipos_partes — sem tenant_id no schema)

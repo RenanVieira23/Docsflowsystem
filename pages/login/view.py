@@ -2,6 +2,7 @@ import flet as ft
 import asyncio
 
 from database.models import autenticar_usuario
+from database.supabase_client import run_db
 
 
 def login_view(page: ft.Page, navegar):
@@ -70,7 +71,8 @@ def login_view(page: ft.Page, navegar):
         page.update()
 
         try:
-            user = await asyncio.to_thread(
+            user = await run_db(
+                page,
                 autenticar_usuario,
                 usuario,
                 senha

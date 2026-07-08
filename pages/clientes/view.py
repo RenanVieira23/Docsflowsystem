@@ -2,6 +2,7 @@ import flet as ft
 import asyncio
 
 from database.models import get_clientes
+from database.supabase_client import run_db
 from pages.clientes.form import novo_cliente_dialog, editar_cliente_dialog
 from utils.table_sort import SortState
 
@@ -107,7 +108,7 @@ class ClientesView(ft.Column):
 
         try:
             tenant_id = self.app_page.local_store.get("tenant_id")
-            dados = await asyncio.to_thread(get_clientes, tenant_id, True)
+            dados = await run_db(self.app_page, get_clientes, tenant_id, True)
         except Exception as ex:
             print("Erro clientes:", ex)
             dados = []
