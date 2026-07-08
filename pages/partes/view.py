@@ -116,8 +116,28 @@ class PartesView(ft.Column):
         self.loading.visible = True
         self.app_page.update()
 
+        tenant_id = None
+
         try:
-            dados = await asyncio.to_thread(get_partes)
+            if hasattr(self.app_page, "local_store") and self.app_page.local_store:
+                tenant_id = self.app_page.local_store.get("tenant_id")
+        except Exception:
+            pass
+
+        if not tenant_id:
+            try:
+                tenant_id = self.app_page.session.get("tenant_id")
+            except Exception:
+                pass
+
+        if not tenant_id:
+            print("❌ Tenant não encontrado.")
+            self.loading.visible = False
+            self.app_page.update()
+            return
+
+        try:
+            dados = await asyncio.to_thread(get_partes, tenant_id)
         except Exception as ex:
             print("Erro partes:", ex)
             dados = []
@@ -126,7 +146,6 @@ class PartesView(ft.Column):
         self.current_page = 1
         self.loading.visible = False
         self._aplicar_filtro()
-
 
     def recarregar(self, e=None):
         self.app_page.run_task(self._carregar_dados)
