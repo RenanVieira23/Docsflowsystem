@@ -1,5 +1,6 @@
 # database/models.py
 import os
+import re
 import json
 import requests
 from datetime import datetime, timedelta
@@ -1180,8 +1181,31 @@ def list_anexos_storage(contrato_id: int):
         return []
 
 
+EXTENSOES_ANEXO_PERMITIDAS = {
+    ".pdf", ".doc", ".docx", ".xls", ".xlsx",
+    ".jpg", ".jpeg", ".png", ".txt",
+}
+
+
+def _sanitizar_nome_arquivo(nome: str) -> str:
+    """
+    Remove caracteres perigosos do nome do arquivo antes de montar o
+    caminho no Storage — evita que um nome como '../../outro/arquivo'
+    tente escrever fora da pasta do contrato.
+    """
+    nome = os.path.basename(nome or "arquivo")
+    nome = re.sub(r"[^A-Za-z0-9._-]", "_", nome)
+    return nome or "arquivo"
+
+
 def upload_anexo_storage(contrato_id, nome_arquivo, file_bytes):
-    caminho = f"contratos/{contrato_id}/anexos/{nome_arquivo}"
+    nome_seguro = _sanitizar_nome_arquivo(nome_arquivo)
+
+    ext = os.path.splitext(nome_seguro)[1].lower()
+    if ext not in EXTENSOES_ANEXO_PERMITIDAS:
+        raise ValueError(f"Tipo de arquivo não permitido: {ext or 'sem extensão'}")
+
+    caminho = f"contratos/{contrato_id}/anexos/{nome_seguro}"
     client = supabase_admin or supabase
     client.storage.from_(STORAGE_BUCKET).upload(
         path=caminho,
@@ -1189,7 +1213,7 @@ def upload_anexo_storage(contrato_id, nome_arquivo, file_bytes):
         file_options={"upsert": "true"},
     )
     return {
-        "nome_arquivo": nome_arquivo,
+        "nome_arquivo": nome_seguro,
         "arquivo_path": caminho,
     }
 

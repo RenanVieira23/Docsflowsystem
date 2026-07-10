@@ -337,6 +337,34 @@ def _build_secao_partes(page, partes_bd, vinculos_bd, cp_existentes=None):
 # SEÇÃO DE ANEXOS — Storage privado "Heringer"
 # ======================================================
 
+async def _upload_anexo_com_status(page: ft.Page, contrato_id, arq: dict):
+    """
+    Faz o upload de um anexo atualizando o texto de status da própria
+    linha ("Pendente" -> "Enviando..." -> "Enviado ✓"/"Erro"), para o
+    usuário acompanhar o progresso de cada arquivo individualmente
+    durante o salvamento do contrato.
+    """
+    status = arq.get("status")
+    if status:
+        status.value = "Enviando..."
+        status.color = ft.Colors.BLUE_600
+        page.update()
+
+    try:
+        resultado = await run_db(page, upload_anexo_storage, contrato_id, arq["nome"], arq["bytes"])
+        if status:
+            status.value = "Enviado ✓"
+            status.color = ft.Colors.GREEN_600
+            page.update()
+        return resultado
+    except Exception:
+        if status:
+            status.value = "Erro no envio"
+            status.color = ft.Colors.RED_600
+            page.update()
+        raise
+
+
 def _build_secao_anexos(page, modo, anexos_existentes=None):
 
     pendentes = []
@@ -428,6 +456,8 @@ def _build_secao_anexos(page, modo, anexos_existentes=None):
         cur = _idx[0]
         _idx[0] += 1
 
+        status_txt = ft.Text("Pendente", size=11, color=ft.Colors.GREY_600)
+
         def _cancel(e, ci=cur):
             pendentes[:] = [p for p in pendentes if p["_idx"] != ci]
             lista_ui.controls.remove(row)
@@ -442,7 +472,7 @@ def _build_secao_anexos(page, modo, anexos_existentes=None):
                 [
                     ft.Icon(_icone_extensao(nome), size=18),
                     ft.Text(nome, expand=True),
-                    ft.Text("Pendente", size=11),
+                    status_txt,
                     ft.IconButton(
                         icon=ft.Icons.CLOSE,
                         on_click=_cancel,
@@ -454,7 +484,7 @@ def _build_secao_anexos(page, modo, anexos_existentes=None):
         lista_ui.controls.append(row)
         page.update()
 
-        return cur
+        return cur, status_txt
 
     # ======================================================
     # EXISTENTES
@@ -467,28 +497,44 @@ def _build_secao_anexos(page, modo, anexos_existentes=None):
     # FILE PICKER CALLBACK
     # ======================================================
 
+    # Extensões aceitas (mesma checagem existe em upload_anexo_storage,
+    # como segunda camada de proteção).
+    EXTENSOES_PERMITIDAS = {
+        ".pdf", ".doc", ".docx", ".xls", ".xlsx",
+        ".jpg", ".jpeg", ".png", ".txt",
+    }
+
     if modo != "ver":
 
         def on_result(e):
-            lbl_erro.value = "on_result fired!"
-            page.update()
             if not e.files:
                 return
             for f in e.files:
                 try:
                     nome = f.name
-                    idx = _row_pendente(nome)
                     data = bytes(f.bytes) if getattr(f, "bytes", None) else b""
-                    lbl_erro.value = f"bytes={len(data)}"
-                    page.update()
+
+                    ext = os.path.splitext(nome)[1].lower()
+                    if ext not in EXTENSOES_PERMITIDAS:
+                        lbl_erro.value = (
+                            f"'{nome}': tipo de arquivo não permitido "
+                            f"(aceitos: {', '.join(sorted(EXTENSOES_PERMITIDAS))})."
+                        )
+                        page.update()
+                        continue
+
+                    lbl_erro.value = ""
+                    idx, status_txt = _row_pendente(nome)
                     pendentes.append({
                         "nome": nome,
                         "bytes": data,
                         "_idx": idx,
                         "_file": f,
+                        "status": status_txt,
                     })
+                    page.update()
                 except Exception as ex:
-                    lbl_erro.value = str(ex)
+                    lbl_erro.value = f"Erro ao processar '{getattr(f, 'name', 'arquivo')}': {ex}"
                     page.update()
 
         # ⭐⭐⭐ REGISTRA CALLBACK DINÂMICO ⭐⭐⭐
@@ -760,12 +806,7 @@ async def novo_contrato_dialog(page: ft.Page, atualizar_lista):
                         ))
 
                 for arq in secao_anexos["pendentes"]:
-                    tarefas.append(run_db(
-                        page, upload_anexo_storage,
-                        novo["id"],
-                        arq["nome"],
-                        arq["bytes"]
-                    ))
+                    tarefas.append(_upload_anexo_com_status(page, novo["id"], arq))
 
                 if tarefas:
                     resultados = await asyncio.gather(*tarefas, return_exceptions=True)
@@ -1114,7 +1155,7 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
             for caminho in secao_anexos["excluir"]:
                 tarefas.append(run_db(page, delete_anexo_storage, caminho))
             for arq in secao_anexos["pendentes"]:
-                tarefas.append(run_db(page, upload_anexo_storage, contrato["id"], arq["nome"], arq["bytes"]))
+                tarefas.append(_upload_anexo_com_status(page, contrato["id"], arq))
 
             if tarefas:
                 resultados = await asyncio.gather(*tarefas, return_exceptions=True)
