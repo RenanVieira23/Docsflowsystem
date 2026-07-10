@@ -31,6 +31,7 @@ FIXES v2:
 """
 
 import flet as ft
+import asyncio
 import os
 import time
 from datetime import datetime
@@ -182,11 +183,84 @@ def _fechar_dialog(page, dialog):
 # SEÇÃO DE PARTES (usa get_vinculos)
 # ======================================================
 
+class _PartePicker:
+    """
+    Campo de busca por nome para selecionar uma parte, usando o
+    ft.AutoComplete NATIVO do Flet (em vez de uma lista de sugestões
+    customizada com Container + on_click, que sofria de um problema
+    clássico de timing: o campo perdia o foco (on_blur) antes do
+    clique no item ser processado, então a seleção não "grudava").
+
+    Expõe `.value` (id da parte, str ou None) e `.control` (o widget
+    a ser inserido na tela) — mesma interface usada antes, então o
+    resto do código (salvar()) não precisa mudar.
+    """
+
+    def __init__(self, page: ft.Page, opcoes: list, valor_inicial=None, width: int = 240):
+        self._page = page
+        self._opcoes = opcoes or []
+
+        # chave única "id::nome" -> permite filtrar digitando o nome
+        # (o Flet filtra pela key das sugestões) e ainda recuperar o
+        # id exato ao selecionar, mesmo se houver nomes repetidos.
+        self._id_por_key = {}
+        sugestoes = []
+        for o in self._opcoes:
+            key = f'{o["id"]}::{o["nome"]}'
+            self._id_por_key[key] = str(o["id"])
+            sugestoes.append(ft.AutoCompleteSuggestion(key=key, value=o["nome"]))
+
+        self._nome_por_id = {str(o["id"]): o["nome"] for o in self._opcoes}
+
+        self.value = str(valor_inicial) if valor_inicial else None
+        nome_inicial = self._nome_por_id.get(self.value, "")
+
+        self._auto = ft.AutoComplete(
+            value=nome_inicial,
+            suggestions=sugestoes,
+            suggestions_max_height=220,
+            on_select=self._on_select,
+            on_change=self._on_change,
+        )
+
+        # moldura visual (o AutoComplete nativo não tem label/borda própria)
+        self.control = ft.Container(
+            content=ft.Column(
+                [
+                    ft.Row(
+                        [ft.Icon(ft.Icons.SEARCH, size=16, color=ft.Colors.GREY_500),
+                         ft.Text("Parte", size=11, color=ft.Colors.GREY_600)],
+                        spacing=4,
+                    ),
+                    self._auto,
+                ],
+                spacing=2, tight=True,
+            ),
+            width=width,
+            padding=ft.padding.symmetric(horizontal=10, vertical=6),
+            border=ft.border.all(1, ft.Colors.GREY_300),
+            border_radius=8,
+            bgcolor=ft.Colors.WHITE,
+        )
+
+    # ------------------------------------------------------------
+    def _on_select(self, e: ft.AutoCompleteSelectEvent):
+        self.value = self._id_por_key.get(e.selection.key)
+        self._page.update()
+
+    def _on_change(self, e):
+        # se o texto digitado não corresponde mais ao nome da parte
+        # selecionada, invalida a seleção até o usuário escolher de novo
+        texto_atual = e.control.value or ""
+        nome_selecionado = self._nome_por_id.get(self.value)
+        if nome_selecionado != texto_atual:
+            self.value = None
+
+
 def _build_secao_partes(page, partes_bd, vinculos_bd, cp_existentes=None):
     """
     vinculos_bd: lista de dicts da tabela 'vinculos' com campo 'tipo'.
     """
-    opts_partes   = [ft.dropdown.Option(str(p["id"]), p["nome"]) for p in (partes_bd or [])]
     opts_vinculos = [
         ft.dropdown.Option(v.get("tipo") or v.get("nome"))
         for v in (vinculos_bd or []) if (v.get("tipo") or v.get("nome"))
@@ -197,10 +271,8 @@ def _build_secao_partes(page, partes_bd, vinculos_bd, cp_existentes=None):
     excluir   = set()
 
     def criar_linha(cp_id=None, parte_id=None, tipo_vinculo=None):
-        dd_parte = ft.Dropdown(
-            options=opts_partes, value=str(parte_id) if parte_id else None,
-            hint_text="Selecionar parte", width=240, dense=True,
-        )
+        parte_picker = _PartePicker(page, partes_bd or [], valor_inicial=parte_id, width=240)
+
         dd_tipo = ft.Dropdown(
             options=opts_vinculos, value=tipo_vinculo,
             hint_text="Categoria de vínculo", width=180, dense=True,
@@ -220,14 +292,14 @@ def _build_secao_partes(page, partes_bd, vinculos_bd, cp_existentes=None):
             border=ft.border.all(1, ft.Colors.GREY_200),
             content=ft.Row(
                 [ft.Icon(ft.Icons.PERSON_OUTLINE, size=16, color=ft.Colors.BLUE_400),
-                 dd_parte, dd_tipo,
+                 parte_picker.control, dd_tipo,
                  ft.IconButton(icon=ft.Icons.REMOVE_CIRCLE_OUTLINE,
                                icon_color=ft.Colors.RED_400, icon_size=18,
                                tooltip="Remover", on_click=remover)],
                 spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
         )
-        item = {"cp_id": cp_id, "dd_parte": dd_parte, "dd_tipo": dd_tipo}
+        item = {"cp_id": cp_id, "dd_parte": parte_picker, "dd_tipo": dd_tipo}
         linhas.append(item)
         container.controls.append(row)
 
@@ -475,10 +547,19 @@ async def novo_contrato_dialog(page: ft.Page, atualizar_lista):
         _snack(page, "Tenant não identificado. Faça login novamente.")
         return
 
-    clientes        = await run_db(page, get_clientes, tenant_id) or []
-    partes_bd       = await run_db(page, get_partes, tenant_id) or []
-    vinculos_bd     = await run_db(page, get_vinculos, tenant_id) or []
-    tipos_contrato  = await run_db(page, get_tipos_contratos, tenant_id) or []
+    # FIX PERFORMANCE: essas 4 consultas são independentes entre si —
+    # antes rodavam uma de cada vez (4 idas e vindas de rede em série).
+    # Agora rodam ao mesmo tempo com asyncio.gather.
+    clientes, partes_bd, vinculos_bd, tipos_contrato = await asyncio.gather(
+        run_db(page, get_clientes, tenant_id),
+        run_db(page, get_partes, tenant_id),
+        run_db(page, get_vinculos, tenant_id),
+        run_db(page, get_tipos_contratos, tenant_id),
+    )
+    clientes       = clientes or []
+    partes_bd      = partes_bd or []
+    vinculos_bd    = vinculos_bd or []
+    tipos_contrato = tipos_contrato or []
 
     if not clientes:
         _snack(page, "Nenhum cliente cadastrado.")
@@ -612,6 +693,8 @@ async def novo_contrato_dialog(page: ft.Page, atualizar_lista):
     # SALVAR
     # ======================================================
 
+    loading_salvar = ft.ProgressRing(width=16, height=16, stroke_width=2, visible=False)
+
     async def salvar(e):
 
         if not dd_cliente.value or not tf_data_ini.value:
@@ -626,56 +709,80 @@ async def novo_contrato_dialog(page: ft.Page, atualizar_lista):
             _snack(page, "Vigência inválida.")
             return
 
-        cli  = next(c for c in clientes if str(c["id"]) == dd_cliente.value)
-        contratos_do_cliente = await run_db(page, get_contratos_por_cliente, cli["id"], tenant_id)
-        nome = _gerar_nome(cli["sigla"], contratos_do_cliente)
+        # feedback visual imediato + evita duplo clique/duplo contrato
+        btn_salvar.disabled = True
+        loading_salvar.visible = True
+        page.update()
 
         try:
-            novo = await run_db(page, add_contrato, {
-                "tenant_id":       tenant_id,
-                "nome":            nome,
-                "cliente_id":      cli["id"],
-                "responsavel":     tf_resp.value or "",
-                "indice":          tf_indice.value or None,
-                "tipo_contrato":   dd_tipo_contrato.value or None,
-                "clausulas":       tf_clausulas.value or "",
-                "data_inicial":    data_br_para_db(tf_data_ini.value),
-                "data_assinatura": data_br_para_db(tf_data_ass.value)
-                                    if tf_data_ass.value else None,
-                "vigencia":        int(tf_vig.value)
-                                    if _is_int_str(tf_vig.value) else None,
-                "termo_final":     data_br_para_db(tf_fim.value),
-            })
+            cli  = next(c for c in clientes if str(c["id"]) == dd_cliente.value)
+            contratos_do_cliente = await run_db(page, get_contratos_por_cliente, cli["id"], tenant_id)
+            nome = _gerar_nome(cli["sigla"], contratos_do_cliente)
 
-        except Exception as ex:
-            _snack(page, f"Erro ao criar contrato: {ex}")
-            return
+            try:
+                novo = await run_db(page, add_contrato, {
+                    "tenant_id":       tenant_id,
+                    "nome":            nome,
+                    "cliente_id":      cli["id"],
+                    "responsavel":     tf_resp.value or "",
+                    "indice":          tf_indice.value or None,
+                    "tipo_contrato":   dd_tipo_contrato.value or None,
+                    "clausulas":       tf_clausulas.value or "",
+                    "data_inicial":    data_br_para_db(tf_data_ini.value),
+                    "data_assinatura": data_br_para_db(tf_data_ass.value)
+                                        if tf_data_ass.value else None,
+                    "vigencia":        int(tf_vig.value)
+                                        if _is_int_str(tf_vig.value) else None,
+                    "termo_final":     data_br_para_db(tf_fim.value),
+                })
 
-        if novo:
+            except Exception as ex:
+                _snack(page, f"Erro ao criar contrato: {ex}")
+                return
 
-            for ln in secao_partes["linhas"]:
-                if ln["dd_parte"].value and ln["dd_tipo"].value:
-                    await run_db(
-                        page, add_contrato_parte,
-                        novo["id"],
-                        int(ln["dd_parte"].value),
-                        ln["dd_tipo"].value
-                    )
+            if novo:
+                # FIX PERFORMANCE: antes, cada parte vinculada e cada anexo
+                # era gravado um de cada vez, esperando a resposta do
+                # Supabase a cada chamada (N + M viagens de rede em série).
+                # Agora todas rodam em paralelo com asyncio.gather — o
+                # tempo total passa a ser o da chamada mais lenta, não a
+                # soma de todas.
+                tarefas = []
 
-            for arq in secao_anexos["pendentes"]:
-                try:
-                    await run_db(
+                for ln in secao_partes["linhas"]:
+                    if ln["dd_parte"].value and ln["dd_tipo"].value:
+                        tarefas.append(run_db(
+                            page, add_contrato_parte,
+                            novo["id"],
+                            int(ln["dd_parte"].value),
+                            ln["dd_tipo"].value,
+                            tenant_id,
+                        ))
+
+                for arq in secao_anexos["pendentes"]:
+                    tarefas.append(run_db(
                         page, upload_anexo_storage,
                         novo["id"],
                         arq["nome"],
                         arq["bytes"]
-                    )
-                except Exception as ex:
-                    _snack(page, f"Erro upload: {ex}")
+                    ))
 
-        _fechar_dialog(page, dialog)
-        atualizar_lista()
-        _snack(page, f"Contrato {nome} criado.")
+                if tarefas:
+                    resultados = await asyncio.gather(*tarefas, return_exceptions=True)
+                    erros = [r for r in resultados if isinstance(r, Exception)]
+                    if erros:
+                        _snack(page, f"Contrato criado, mas {len(erros)} item(ns) falharam ao salvar.")
+
+            _fechar_dialog(page, dialog)
+            atualizar_lista()
+            _snack(page, f"Contrato {nome} criado.")
+
+        finally:
+            btn_salvar.disabled = False
+            loading_salvar.visible = False
+            page.update()
+
+    btn_salvar = ft.FilledButton("Salvar", on_click=salvar)
 
     # ======================================================
     # DIALOG
@@ -739,7 +846,8 @@ async def novo_contrato_dialog(page: ft.Page, atualizar_lista):
         actions=[
             ft.TextButton("Cancelar",
                           on_click=lambda e: _fechar_dialog(page, dialog)),
-            ft.FilledButton("Salvar", on_click=salvar),
+            loading_salvar,
+            btn_salvar,
         ],
         actions_alignment=ft.MainAxisAlignment.END,
     )
@@ -761,9 +869,28 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
         _snack(page, "Tenant não identificado. Faça login novamente.")
         return
 
-    partes_bd      = await run_db(page, get_partes, tenant_id) or []
-    vinculos_bd    = await run_db(page, get_vinculos, tenant_id) or []
-    tipos_contrato = await run_db(page, get_tipos_contratos, tenant_id) or []
+    # FIX PERFORMANCE: 6 consultas independentes, antes feitas uma de
+    # cada vez (6 idas e vindas de rede em série) espalhadas pelo meio
+    # da montagem da tela. Agora todas rodam juntas, no início, com
+    # asyncio.gather — o restante da função só monta a UI com os
+    # dados que já chegaram.
+    (
+        partes_bd, vinculos_bd, tipos_contrato,
+        cp_existentes, prazos, anexos_existentes,
+    ) = await asyncio.gather(
+        run_db(page, get_partes, tenant_id),
+        run_db(page, get_vinculos, tenant_id),
+        run_db(page, get_tipos_contratos, tenant_id),
+        run_db(page, get_contrato_partes, contrato["id"]),
+        run_db(page, get_prazos_por_contrato, contrato["id"]),
+        run_db(page, list_anexos_storage, contrato["id"]),
+    )
+    partes_bd         = partes_bd or []
+    vinculos_bd       = vinculos_bd or []
+    tipos_contrato    = tipos_contrato or []
+    cp_existentes     = cp_existentes or []
+    prazos            = prazos or []
+    anexos_existentes = anexos_existentes or []
 
     # ── Mesmos campos do Novo, com valores pré-preenchidos ──
 
@@ -858,11 +985,9 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
     recalcular()
 
     # ── Partes ──
-    cp_existentes = await run_db(page, get_contrato_partes, contrato["id"]) or []
     secao_partes  = _build_secao_partes(page, partes_bd, vinculos_bd, cp_existentes)
 
     # ── Prazos ──
-    prazos           = await run_db(page, get_prazos_por_contrato, contrato["id"]) or []
     container_prazos = ft.Column(spacing=6)
     linhas_prazos    = []
     excluir_prazos   = set()
@@ -916,15 +1041,20 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
         page.update()
 
     # ── Anexos ──
-    anexos_existentes = await run_db(page, list_anexos_storage, contrato["id"]) or []
     secao_anexos = _build_secao_anexos(page, modo="editar",
                                        anexos_existentes=anexos_existentes)
+
+    loading_salvar = ft.ProgressRing(width=16, height=16, stroke_width=2, visible=False)
 
     # ── Salvar ──
     async def salvar(e):
         if tf_vig.value and not _is_int_str(tf_vig.value):
             _snack(page, "Vigência inválida.")
             return
+
+        btn_salvar.disabled = True
+        loading_salvar.visible = True
+        page.update()
 
         try:
             await run_db(page, update_contrato, contrato["id"], {
@@ -937,8 +1067,15 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
                 "termo_final":     data_br_para_db(tf_fim.value),
             })
 
+            # FIX PERFORMANCE: prazos, partes e anexos eram gravados um de
+            # cada vez, em série (cada `await` esperando a rede antes do
+            # próximo). Agora todas essas operações independentes rodam em
+            # paralelo com asyncio.gather — o tempo total passa a ser o da
+            # operação mais lenta, não a soma de todas.
+            tarefas = []
+
             for pid in excluir_prazos:
-                await run_db(page, update_prazo, pid, {"ativo": False})
+                tarefas.append(run_db(page, update_prazo, pid, {"ativo": False}))
 
             for pid, tf_m, tf_d, tf_o in linhas_prazos:
                 if pid in excluir_prazos:
@@ -951,9 +1088,9 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
                     "observacao":      tf_o.value or "",
                 }
                 if pid:
-                    await run_db(page, update_prazo, pid, payload)
+                    tarefas.append(run_db(page, update_prazo, pid, payload))
                 else:
-                    await run_db(
+                    tarefas.append(run_db(
                         page, add_prazo,
                         contrato_id=contrato["id"],
                         meses=payload["meses"],
@@ -961,10 +1098,10 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
                         data_criacao=contrato.get("data_inicial"),
                         data_vencimento=payload["data_vencimento"],
                         tenant_id=tenant_id,
-                    )
+                    ))
 
             for cp_id in secao_partes["excluir"]:
-                await run_db(page, delete_contrato_parte, cp_id)
+                tarefas.append(run_db(page, delete_contrato_parte, cp_id))
             for ln in secao_partes["linhas"]:
                 cp_id = ln["cp_id"]
                 p_val = ln["dd_parte"].value
@@ -972,23 +1109,32 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
                 if cp_id in secao_partes["excluir"] or not p_val or not t_val:
                     continue
                 if cp_id is None:
-                    await run_db(page, add_contrato_parte, contrato["id"], int(p_val), t_val)
+                    tarefas.append(run_db(page, add_contrato_parte, contrato["id"], int(p_val), t_val, tenant_id))
 
             for caminho in secao_anexos["excluir"]:
-                await run_db(page, delete_anexo_storage, caminho)
+                tarefas.append(run_db(page, delete_anexo_storage, caminho))
             for arq in secao_anexos["pendentes"]:
-                try:
-                    await run_db(page, upload_anexo_storage, contrato["id"], arq["nome"], arq["bytes"])
-                except Exception as ex:
-                    _snack(page, f"Erro upload: {ex}")
+                tarefas.append(run_db(page, upload_anexo_storage, contrato["id"], arq["nome"], arq["bytes"]))
+
+            if tarefas:
+                resultados = await asyncio.gather(*tarefas, return_exceptions=True)
+                erros = [r for r in resultados if isinstance(r, Exception)]
+                if erros:
+                    _snack(page, f"Contrato salvo, mas {len(erros)} item(ns) falharam.")
 
         except Exception as ex:
             _snack(page, f"Erro: {ex}")
             return
+        finally:
+            btn_salvar.disabled = False
+            loading_salvar.visible = False
+            page.update()
 
         _fechar_dialog(page, dialog)
         on_save()
         _snack(page, "Contrato atualizado.")
+
+    btn_salvar = ft.FilledButton("Salvar", on_click=salvar)
 
     dialog = ft.AlertDialog(
         modal=True,
@@ -1045,7 +1191,8 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
         ),
         actions=[
             ft.TextButton("Cancelar", on_click=lambda e: _fechar_dialog(page, dialog)),
-            ft.FilledButton("Salvar", on_click=salvar),
+            loading_salvar,
+            btn_salvar,
         ],
         actions_alignment=ft.MainAxisAlignment.END,
     )
@@ -1061,12 +1208,27 @@ async def ver_contrato_dialog(page: ft.Page, contrato: dict, clientes_map: dict)
 
     tenant_id = _get_tenant(page)
 
-    prazos       = await run_db(page, get_prazos_por_contrato, contrato["id"]) or []
-    cp_lista     = await run_db(page, get_contrato_partes, contrato["id"]) or []
-    todas_partes = await run_db(page, get_partes, tenant_id) or []
+    # FIX PERFORMANCE: eram 7 consultas — 5 em série no topo, e mais 2
+    # repetidas lá embaixo (get_partes/get_vinculos de novo, buscando
+    # a MESMA coisa que "todas_partes" já tinha trazido). Agora são 6
+    # consultas únicas, todas paralelas, num só lugar.
+    (
+        prazos, cp_lista, todas_partes, anexos, tipos_contrato, vinculos_bd,
+    ) = await asyncio.gather(
+        run_db(page, get_prazos_por_contrato, contrato["id"]),
+        run_db(page, get_contrato_partes, contrato["id"]),
+        run_db(page, get_partes, tenant_id),
+        run_db(page, list_anexos_storage, contrato["id"]),
+        run_db(page, get_tipos_contratos, tenant_id),
+        run_db(page, get_vinculos, tenant_id),
+    )
+    prazos         = prazos or []
+    cp_lista       = cp_lista or []
+    todas_partes   = todas_partes or []
+    anexos         = anexos or []
+    tipos_contrato = tipos_contrato or []
+    vinculos_bd    = vinculos_bd or []
     partes_map   = {str(p["id"]): p for p in todas_partes}
-    anexos       = await run_db(page, list_anexos_storage, contrato["id"]) or []
-    tipos_contrato = await run_db(page, get_tipos_contratos, tenant_id) or []
 
     nome_cliente = clientes_map.get(contrato.get("cliente_id"), "-")
 
@@ -1141,8 +1303,7 @@ async def ver_contrato_dialog(page: ft.Page, contrato: dict, clientes_map: dict)
     )
 
     # ── Partes (read-only dropdowns) ──
-    partes_bd   = await run_db(page, get_partes, tenant_id) or []
-    vinculos_bd = await run_db(page, get_vinculos, tenant_id) or []
+    partes_bd     = todas_partes
     opts_partes   = [ft.dropdown.Option(str(p["id"]), p["nome"]) for p in partes_bd]
     opts_vinculos = [
         ft.dropdown.Option(v.get("tipo") or v.get("nome"))

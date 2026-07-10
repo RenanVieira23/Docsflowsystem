@@ -104,6 +104,7 @@ async def run_db(page, func, *args, **kwargs):
         clientes = await run_db(page, get_clientes, tenant_id)
     """
     import asyncio  # import local para não exigir asyncio em quem só usa supabase/supabase_admin
+    import time
 
     client = None
     if hasattr(page, "local_store") and page.local_store:
@@ -116,4 +117,16 @@ async def run_db(page, func, *args, **kwargs):
         print("⚠️ run_db: sessão sem supabase_client — usando client anônimo.")
         client = new_session_client()
 
-    return await asyncio.to_thread(run_with_client, client, func, *args, **kwargs)
+    # Cronometragem: ajuda a identificar no log do Render se a lentidão
+    # é de uma chamada específica (query lenta, tabela sem índice) ou
+    # geral (cold start do servidor, rede). Só imprime se levar > 1.5s
+    # para não poluir o console em uso normal.
+    inicio = time.perf_counter()
+    resultado = await asyncio.to_thread(run_with_client, client, func, *args, **kwargs)
+    duracao = time.perf_counter() - inicio
+
+    if duracao > 1.5:
+        nome_func = getattr(func, "__name__", str(func))
+        print(f"⏱️  run_db: {nome_func} levou {duracao:.2f}s")
+
+    return resultado
