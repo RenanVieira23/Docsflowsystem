@@ -57,6 +57,7 @@ from database.models import (
     delete_anexo_storage,
     get_anexo_signed_url,
     get_tipos_contratos,
+    get_tipos_prazos,
 )
 
 from utils.calendario_ptbr import calendario_ptbr
@@ -337,6 +338,15 @@ def _build_secao_partes(page, partes_bd, vinculos_bd, cp_existentes=None):
 # SEÇÃO DE ANEXOS — Storage privado "Heringer"
 # ======================================================
 
+# Limita quantos anexos são enviados AO MESMO TEMPO. Em produção
+# (Render -> Supabase) a banda é abundante e isso quase não importa,
+# mas em conexões limitadas (ex: testes locais, internet residencial
+# mais lenta), muitos uploads simultâneos disputam a mesma banda e o
+# mais lento acaba pior do que se fossem enviados em pequenos lotes.
+# 3 ao mesmo tempo ainda dá ganho de paralelismo sem gargalar tanto.
+_LIMITE_UPLOADS_SIMULTANEOS = asyncio.Semaphore(3)
+
+
 async def _upload_anexo_com_status(page: ft.Page, contrato_id, arq: dict):
     """
     Faz o upload de um anexo atualizando o texto de status da própria
@@ -345,24 +355,26 @@ async def _upload_anexo_com_status(page: ft.Page, contrato_id, arq: dict):
     durante o salvamento do contrato.
     """
     status = arq.get("status")
-    if status:
-        status.value = "Enviando..."
-        status.color = ft.Colors.BLUE_600
-        page.update()
 
-    try:
-        resultado = await run_db(page, upload_anexo_storage, contrato_id, arq["nome"], arq["bytes"])
+    async with _LIMITE_UPLOADS_SIMULTANEOS:
         if status:
-            status.value = "Enviado ✓"
-            status.color = ft.Colors.GREEN_600
+            status.value = "Enviando..."
+            status.color = ft.Colors.BLUE_600
             page.update()
-        return resultado
-    except Exception:
-        if status:
-            status.value = "Erro no envio"
-            status.color = ft.Colors.RED_600
-            page.update()
-        raise
+
+        try:
+            resultado = await run_db(page, upload_anexo_storage, contrato_id, arq["nome"], arq["bytes"])
+            if status:
+                status.value = "Enviado ✓"
+                status.color = ft.Colors.GREEN_600
+                page.update()
+            return resultado
+        except Exception:
+            if status:
+                status.value = "Erro no envio"
+                status.color = ft.Colors.RED_600
+                page.update()
+            raise
 
 
 def _build_secao_anexos(page, modo, anexos_existentes=None):
@@ -917,7 +929,7 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
     # dados que já chegaram.
     (
         partes_bd, vinculos_bd, tipos_contrato,
-        cp_existentes, prazos, anexos_existentes,
+        cp_existentes, prazos, anexos_existentes, tipos_prazos,
     ) = await asyncio.gather(
         run_db(page, get_partes, tenant_id),
         run_db(page, get_vinculos, tenant_id),
@@ -925,6 +937,7 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
         run_db(page, get_contrato_partes, contrato["id"]),
         run_db(page, get_prazos_por_contrato, contrato["id"]),
         run_db(page, list_anexos_storage, contrato["id"]),
+        run_db(page, get_tipos_prazos, tenant_id),
     )
     partes_bd         = partes_bd or []
     vinculos_bd       = vinculos_bd or []
@@ -932,6 +945,7 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
     cp_existentes     = cp_existentes or []
     prazos            = prazos or []
     anexos_existentes = anexos_existentes or []
+    tipos_prazos      = tipos_prazos or []
 
     # ── Mesmos campos do Novo, com valores pré-preenchidos ──
 
@@ -1033,23 +1047,16 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
     linhas_prazos    = []
     excluir_prazos   = set()
 
-    def criar_linha_prazo(pid, meses="", data="", obs="", existente=False):
-        tf_m = ft.TextField(value=str(meses or ""), hint_text="Meses", width=80,
-                            keyboard_type=ft.KeyboardType.NUMBER)
-        tf_d = ft.TextField(value=data_db_para_br(data), width=130, read_only=True)
-        tf_o = ft.TextField(value=obs or "", width=220)
-
-        def sync():
-            if _is_int_str(tf_m.value):
-                tf_d.value = data_db_para_br(
-                    _format_db(_data_por_meses(data_base, int(tf_m.value)))
-                )
-
-        tf_m.on_change = lambda e: (sync(), page.update())
+    def criar_linha_prazo(pid, data="", obs="", tipo=None, existente=False):
+        tf_d = ft.TextField(label="Data", value=data_db_para_br(data), width=150, read_only=True)
+        dd_t = ft.Dropdown(
+            label="Tipo", value=tipo, width=160,
+            options=[ft.dropdown.Option(t["nome"]) for t in tipos_prazos],
+        )
+        tf_o = ft.TextField(label="Observação", value=obs or "", width=220)
 
         def _set_data_prazo(d):
             tf_d.value = d.strftime("%d/%m/%Y")
-            tf_m.value = str(_calcular_meses(data_base, d))
             page.update()
 
         def cal_p(e):
@@ -1062,20 +1069,22 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
             page.update()
 
         row = ft.Row(
-            [tf_m, tf_d,
-             ft.OutlinedButton("Calendário", icon=ft.Icons.CALENDAR_TODAY,
+            [ft.OutlinedButton("Data", icon=ft.Icons.CALENDAR_TODAY,
                                height=32, on_click=cal_p),
+             tf_d,
+             dd_t,
              tf_o,
-             ft.TextButton("X", on_click=remover)],
+             ft.IconButton(icon=ft.Icons.CLOSE, icon_size=18, on_click=remover)],
             spacing=6,
         )
-        linhas_prazos.append((pid, tf_m, tf_d, tf_o))
+        linhas_prazos.append((pid, tf_d, dd_t, tf_o))
         container_prazos.controls.append(row)
 
     for p in prazos:
-        criar_linha_prazo(p["id"], p.get("meses"),
+        criar_linha_prazo(p["id"],
                           p.get("data_vencimento"),
-                          p.get("observacao"), True)
+                          p.get("observacao"),
+                          p.get("tipo"), True)
 
     def novo_prazo(e):
         criar_linha_prazo(None)
@@ -1118,15 +1127,15 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
             for pid in excluir_prazos:
                 tarefas.append(run_db(page, update_prazo, pid, {"ativo": False}))
 
-            for pid, tf_m, tf_d, tf_o in linhas_prazos:
+            for pid, tf_d, dd_t, tf_o in linhas_prazos:
                 if pid in excluir_prazos:
                     continue
-                if not tf_m.value and not tf_d.value and not tf_o.value:
+                if not tf_d.value and not tf_o.value and not dd_t.value:
                     continue
                 payload = {
-                    "meses":           int(tf_m.value) if _is_int_str(tf_m.value) else None,
                     "data_vencimento": data_br_para_db(tf_d.value),
                     "observacao":      tf_o.value or "",
+                    "tipo":            dd_t.value,
                 }
                 if pid:
                     tarefas.append(run_db(page, update_prazo, pid, payload))
@@ -1134,11 +1143,12 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
                     tarefas.append(run_db(
                         page, add_prazo,
                         contrato_id=contrato["id"],
-                        meses=payload["meses"],
+                        meses=None,
                         observacao=tf_o.value,
                         data_criacao=contrato.get("data_inicial"),
                         data_vencimento=payload["data_vencimento"],
                         tenant_id=tenant_id,
+                        tipo=dd_t.value,
                     ))
 
             for cp_id in secao_partes["excluir"]:
@@ -1384,6 +1394,13 @@ async def ver_contrato_dialog(page: ft.Page, contrato: dict, clientes_map: dict)
                     ft.Icon(ft.Icons.CALENDAR_TODAY, size=14, color=ft.Colors.BLUE_400),
                     ft.Text(data_db_para_br(p.get("data_vencimento")),
                             weight=ft.FontWeight.W_500, size=13),
+                    ft.Container(
+                        padding=ft.padding.symmetric(horizontal=8, vertical=2),
+                        border_radius=6, bgcolor=ft.Colors.BLUE_50,
+                        content=ft.Text(p.get("tipo") or "-", size=12,
+                                        color=ft.Colors.BLUE_700,
+                                        weight=ft.FontWeight.W_600),
+                    ) if p.get("tipo") else ft.Container(),
                     ft.Text(f"— {p.get('observacao') or ''}",
                             color=ft.Colors.GREY_600, size=13),
                 ], spacing=6),

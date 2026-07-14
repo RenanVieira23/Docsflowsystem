@@ -8,9 +8,6 @@ class AppLayout(ft.Column):
         self.app_page = page
         self.get_view = get_view
 
-        # Cache de views (performance)
-        self.views_cache = {}
-
         # =========================
         # USER LABEL
         # =========================
@@ -196,8 +193,18 @@ class AppLayout(ft.Column):
     # =====================================================
 
     def _logout(self, e):
+        # FIX: local_store.clear() também apagava "supabase_client" — e
+        # como main() só roda de novo com um F5 completo no navegador
+        # (não a cada logout/login dentro da mesma sessão), o sistema
+        # ficava sem client nenhum guardado. O próximo login então usava
+        # um client "de socorro" descartável a cada chamada (nunca salvo
+        # de volta), e por isso nada mais carregava direito até dar F5
+        # manualmente. Agora recriamos um client novo e limpo aqui,
+        # pronto pro próximo login.
+        from database.supabase_client import new_session_client
+
         self.app_page.local_store.clear()
-        self.views_cache.clear()
+        self.app_page.local_store["supabase_client"] = new_session_client()
         self.app_page.go("/login")
 
     # =====================================================
@@ -232,11 +239,12 @@ class AppLayout(ft.Column):
             self.app_page.snack_bar.open = True
             route = "/dashboard"
 
-        if route in self.views_cache:
-            view = self.views_cache[route]
-        else:
-            view = self.get_view(route)
-            self.views_cache[route] = view
+        # FIX: antes, a view de cada rota era guardada aqui e nunca mais
+        # reconstruída na mesma sessão — por isso dados criados em outra
+        # tela (ex: um novo contrato) só apareciam na PRIMEIRA vez que a
+        # tela era visitada. Agora cada navegação chama get_view() de
+        # novo, sempre com dados atuais.
+        view = self.get_view(route)
 
         self.content_area.content = view
         self.app_page.update()

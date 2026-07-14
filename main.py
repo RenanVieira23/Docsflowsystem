@@ -76,51 +76,47 @@ def main(page: ft.Page):
             return ft.Container()
 
         if route == "/login":
+            # login não muda entre visitas, esse pode continuar em cache
             if "login" not in views_cache:
                 views_cache["login"] = login_view(page, page.go)
             return views_cache["login"]
 
+        # =========================================================
+        # FIX: as telas abaixo eram guardadas em views_cache e NUNCA
+        # reconstruídas — então dados criados/alterados em outra tela
+        # (ex: um novo contrato) só apareciam aqui na PRIMEIRA vez que
+        # a tela era aberta na sessão; visitas seguintes reexibiam a
+        # mesma instância antiga, com os dados de quando foi criada.
+        # Agora cada navegação cria a tela de novo, sempre com dados
+        # atuais. O custo (reconstruir + buscar dados de novo) é
+        # pequeno, já que essas buscas rodam em paralelo.
+        # =========================================================
+
         if route == "/dashboard":
             if usuario_id:
                 log_async(usuario_id, "Acessou o Dashboard")
-            if route not in views_cache:
-                views_cache[route] = dashboard.dashboard_view(page)
-            return views_cache[route]
+            return dashboard.dashboard_view(page)
 
         if route == "/clientes":
-            if route not in views_cache:
-                views_cache[route] = clientes.clientes_view(page)
-            return views_cache[route]
+            return clientes.clientes_view(page)
 
         if route == "/contratos":
-            if route not in views_cache:
-                views_cache[route] = contratos.contratos_view(page)
-            return views_cache[route]
+            return contratos.contratos_view(page)
 
         if route in ["/alertas", "/painel"]:
-            if "/alertas" not in views_cache:
-                views_cache["/alertas"] = painel.painel_view(page)
-            return views_cache["/alertas"]
+            return painel.painel_view(page)
 
         if route == "/relatorios":
-            if route not in views_cache:
-                views_cache[route] = relatorios.relatorios_view(page)
-            return views_cache[route]
+            return relatorios.relatorios_view(page)
 
         if route == "/partes":
-            if route not in views_cache:
-                views_cache[route] = partes_view(page)
-            return views_cache[route]
+            return partes_view(page)
 
         if route == "/tipos-partes":
-            if route not in views_cache:
-                views_cache[route] = tipos_partes_view(page)
-            return views_cache[route]
+            return tipos_partes_view(page)
 
         if route == "/alertas-cadastro":
-            if route not in views_cache:
-                views_cache[route] = alertas_cadastro_view(page)
-            return views_cache[route]
+            return alertas_cadastro_view(page)
 
         if route == "/admin":
             is_admin = _as_bool(page.local_store.get("is_admin"))
@@ -133,9 +129,7 @@ def main(page: ft.Page):
                     content=ft.Text("Acesso negado"),
                 )
 
-            if route not in views_cache:
-                views_cache[route] = admin_view(page)
-            return views_cache[route]
+            return admin_view(page)
 
         page.go("/dashboard")
         return ft.Container()

@@ -191,6 +191,9 @@ class AlertasCadastroView(ft.Column):
                             content=ft.Row([
                                 ft.Icon(ft.Icons.CALENDAR_TODAY, size=13),
                                 ft.Text(data_db_para_br(p.get("data_vencimento"))),
+                                ft.Text(p.get("tipo") or "-", size=12,
+                                        color=ft.Colors.BLUE_700,
+                                        weight=ft.FontWeight.W_600),
                                 ft.Text(p.get("observacao") or ""),
                             ])
                         )
@@ -224,6 +227,7 @@ class AlertasCadastroView(ft.Column):
                 data_criacao=contrato.get("data_inicial"),
                 data_vencimento=data_br_para_db(tf_dt.value),
                 tenant_id=self.tenant_id,
+                tipo=dd_tp.value,
             )
 
             await _refresh_prazos()

@@ -107,15 +107,22 @@ async def run_db(page, func, *args, **kwargs):
     import time
 
     client = None
-    if hasattr(page, "local_store") and page.local_store:
+    if hasattr(page, "local_store") and page.local_store is not None:
         client = page.local_store.get("supabase_client")
 
     if client is None:
         # Rede de segurança: cria um client novo (sem token) para não
         # travar a aplicação, mas isso indica que new_session_client()
-        # não foi chamado/guardado corretamente no início da sessão.
-        print("⚠️ run_db: sessão sem supabase_client — usando client anônimo.")
+        # não foi chamado/guardado corretamente no início da sessão
+        # (ex: logo após um logout). Guardamos de volta em local_store
+        # para as PRÓXIMAS chamadas reaproveitarem o mesmo client —
+        # sem isso, cada run_db() criava um client descartável novo,
+        # e o token aplicado no login seguinte nunca "grudava" em
+        # nenhum lugar persistente.
+        print("⚠️ run_db: sessão sem supabase_client — criando um novo.")
         client = new_session_client()
+        if hasattr(page, "local_store") and page.local_store is not None:
+            page.local_store["supabase_client"] = client
 
     # Cronometragem: ajuda a identificar no log do Render se a lentidão
     # é de uma chamada específica (query lenta, tabela sem índice) ou

@@ -342,7 +342,7 @@ def update_contrato(contrato_id: int, dados: dict):
 # PRAZOS
 # ======================================================
 
-def add_prazo(contrato_id, meses, observacao, data_criacao, data_vencimento, tenant_id):
+def add_prazo(contrato_id, meses, observacao, data_criacao, data_vencimento, tenant_id, tipo=None):
     try:
         novo_prazo = {
             "contrato_id": contrato_id,
@@ -351,6 +351,7 @@ def add_prazo(contrato_id, meses, observacao, data_criacao, data_vencimento, ten
             "data_criacao": data_criacao or datetime.now().strftime("%Y-%m-%d"),
             "data_vencimento": data_vencimento,
             "tenant_id": tenant_id,  # ← obrigatório para RLS
+            "tipo": tipo,
         }
         resp = supabase.table("prazos").insert(novo_prazo).execute()
         return resp.data[0] if resp.data else novo_prazo
