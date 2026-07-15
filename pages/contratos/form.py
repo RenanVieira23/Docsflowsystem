@@ -61,7 +61,7 @@ from database.models import (
 )
 
 from utils.calendario_ptbr import calendario_ptbr
-from utils.dataptbr import data_br_para_db, data_db_para_br
+from utils.dataptbr import data_br_para_db, data_db_para_br, somar_meses
 
 
 DB_FMT     = "%Y-%m-%d"
@@ -332,6 +332,41 @@ def _build_secao_partes(page, partes_bd, vinculos_bd, cp_existentes=None):
         spacing=8,
     )
     return {"widget": widget, "linhas": linhas, "excluir": excluir}
+
+
+# ======================================================
+# ESCRITAS CONCORRENTES (partes, prazos, exclusões) — retry + limite
+# ======================================================
+
+# Mesma lógica do limite de uploads: muitas requisições simultâneas na
+# mesma conexão podem derrubar o protocolo HTTP2 no meio
+# (ConnectionTerminated / PROTOCOL_ERROR), especialmente ao vincular
+# várias partes de uma vez. Limitar a concorrência reduz bastante a
+# chance disso acontecer.
+_LIMITE_ESCRITAS_SIMULTANEAS = asyncio.Semaphore(4)
+
+
+async def _run_db_com_retry(page: ft.Page, func, *args, tentativas: int = 3, **kwargs):
+    """
+    Igual a run_db(), mas tenta de novo (com um pequeno intervalo) se a
+    conexão cair no meio da requisição — o que passou a acontecer com
+    mais frequência depois que paralelizamos várias escritas (partes,
+    prazos) numa mesma chamada de salvar(). Erros "de negócio" (RLS,
+    validação) falham igual na primeira tentativa e não se beneficiam
+    do retry, mas repetir não causa problema — add_contrato_parte, por
+    exemplo, agora usa upsert, então repetir a mesma escrita não cria
+    duplicata nem quebra em erro de unicidade.
+    """
+    ultimo_erro = None
+    async with _LIMITE_ESCRITAS_SIMULTANEAS:
+        for tentativa in range(1, tentativas + 1):
+            try:
+                return await run_db(page, func, *args, **kwargs)
+            except Exception as ex:
+                ultimo_erro = ex
+                if tentativa < tentativas:
+                    await asyncio.sleep(0.4 * tentativa)
+        raise ultimo_erro
 
 
 # ======================================================
@@ -809,7 +844,7 @@ async def novo_contrato_dialog(page: ft.Page, atualizar_lista):
 
                 for ln in secao_partes["linhas"]:
                     if ln["dd_parte"].value and ln["dd_tipo"].value:
-                        tarefas.append(run_db(
+                        tarefas.append(_run_db_com_retry(
                             page, add_contrato_parte,
                             novo["id"],
                             int(ln["dd_parte"].value),
@@ -1047,20 +1082,42 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
     linhas_prazos    = []
     excluir_prazos   = set()
 
-    def criar_linha_prazo(pid, data="", obs="", tipo=None, existente=False):
-        tf_d = ft.TextField(label="Data", value=data_db_para_br(data), width=150, read_only=True)
+    def criar_linha_prazo(pid, data_inicio="", meses="", obs="", tipo=None, existente=False):
+        tf_i = ft.TextField(label="Data Início", value=data_db_para_br(data_inicio),
+                            width=140, read_only=True)
+        tf_m = ft.TextField(
+            label="Meses", value=str(meses) if meses not in (None, "", 0) else "",
+            width=80,
+            input_filter=ft.NumbersOnlyInputFilter(),
+            keyboard_type=ft.KeyboardType.NUMBER,
+        )
+        # Calculada automaticamente (Data Início + Meses) — não editável.
+        tf_d = ft.TextField(label="Data", width=140, read_only=True)
         dd_t = ft.Dropdown(
-            label="Tipo", value=tipo, width=160,
+            label="Tipo", value=tipo, width=220, menu_width=280,
             options=[ft.dropdown.Option(t["nome"]) for t in tipos_prazos],
         )
-        tf_o = ft.TextField(label="Observação", value=obs or "", width=220)
+        tf_o = ft.TextField(label="Observação", value=obs or "", width=200)
 
-        def _set_data_prazo(d):
-            tf_d.value = d.strftime("%d/%m/%Y")
+        def _recalcular(e=None):
+            if len(tf_m.value or "") > 3:
+                tf_m.value = tf_m.value[:3]
+            iso_inicio = data_br_para_db(tf_i.value)
+            nova = somar_meses(iso_inicio, tf_m.value)
+            tf_d.value = data_db_para_br(nova) if nova else ""
             page.update()
 
+        tf_m.on_change = _recalcular
+
+        def _set_data_inicio(d):
+            tf_i.value = d.strftime("%d/%m/%Y")
+            _recalcular()
+
         def cal_p(e):
-            calendario_ptbr(page, on_select=_set_data_prazo)
+            calendario_ptbr(page, on_select=_set_data_inicio)
+
+        # Calcula a data já na criação da linha (prazos existentes)
+        _recalcular()
 
         def remover(e):
             container_prazos.controls.remove(row)
@@ -1069,20 +1126,23 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
             page.update()
 
         row = ft.Row(
-            [ft.OutlinedButton("Data", icon=ft.Icons.CALENDAR_TODAY,
+            [ft.OutlinedButton("Data Início", icon=ft.Icons.CALENDAR_TODAY,
                                height=32, on_click=cal_p),
+             tf_i,
+             tf_m,
              tf_d,
              dd_t,
              tf_o,
              ft.IconButton(icon=ft.Icons.CLOSE, icon_size=18, on_click=remover)],
-            spacing=6,
+            spacing=6, wrap=True,
         )
-        linhas_prazos.append((pid, tf_d, dd_t, tf_o))
+        linhas_prazos.append((pid, tf_i, tf_m, tf_d, dd_t, tf_o))
         container_prazos.controls.append(row)
 
     for p in prazos:
         criar_linha_prazo(p["id"],
-                          p.get("data_vencimento"),
+                          p.get("data_criacao"),
+                          p.get("meses"),
                           p.get("observacao"),
                           p.get("tipo"), True)
 
@@ -1125,34 +1185,36 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
             tarefas = []
 
             for pid in excluir_prazos:
-                tarefas.append(run_db(page, update_prazo, pid, {"ativo": False}))
+                tarefas.append(_run_db_com_retry(page, update_prazo, pid, {"ativo": False}))
 
-            for pid, tf_d, dd_t, tf_o in linhas_prazos:
+            for pid, tf_i, tf_m, tf_d, dd_t, tf_o in linhas_prazos:
                 if pid in excluir_prazos:
                     continue
-                if not tf_d.value and not tf_o.value and not dd_t.value:
+                if not tf_i.value and not tf_d.value and not tf_o.value and not dd_t.value:
                     continue
                 payload = {
+                    "data_criacao":    data_br_para_db(tf_i.value),
+                    "meses":           int(tf_m.value) if _is_int_str(tf_m.value) else 0,
                     "data_vencimento": data_br_para_db(tf_d.value),
                     "observacao":      tf_o.value or "",
                     "tipo":            dd_t.value,
                 }
                 if pid:
-                    tarefas.append(run_db(page, update_prazo, pid, payload))
+                    tarefas.append(_run_db_com_retry(page, update_prazo, pid, payload))
                 else:
-                    tarefas.append(run_db(
+                    tarefas.append(_run_db_com_retry(
                         page, add_prazo,
                         contrato_id=contrato["id"],
-                        meses=None,
+                        meses=payload["meses"],
                         observacao=tf_o.value,
-                        data_criacao=contrato.get("data_inicial"),
+                        data_criacao=payload["data_criacao"],
                         data_vencimento=payload["data_vencimento"],
                         tenant_id=tenant_id,
                         tipo=dd_t.value,
                     ))
 
             for cp_id in secao_partes["excluir"]:
-                tarefas.append(run_db(page, delete_contrato_parte, cp_id))
+                tarefas.append(_run_db_com_retry(page, delete_contrato_parte, cp_id))
             for ln in secao_partes["linhas"]:
                 cp_id = ln["cp_id"]
                 p_val = ln["dd_parte"].value
@@ -1160,10 +1222,10 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
                 if cp_id in secao_partes["excluir"] or not p_val or not t_val:
                     continue
                 if cp_id is None:
-                    tarefas.append(run_db(page, add_contrato_parte, contrato["id"], int(p_val), t_val, tenant_id))
+                    tarefas.append(_run_db_com_retry(page, add_contrato_parte, contrato["id"], int(p_val), t_val, tenant_id))
 
             for caminho in secao_anexos["excluir"]:
-                tarefas.append(run_db(page, delete_anexo_storage, caminho))
+                tarefas.append(_run_db_com_retry(page, delete_anexo_storage, caminho))
             for arq in secao_anexos["pendentes"]:
                 tarefas.append(_upload_anexo_com_status(page, contrato["id"], arq))
 
@@ -1392,6 +1454,11 @@ async def ver_contrato_dialog(page: ft.Page, contrato: dict, clientes_map: dict)
                 border=ft.border.all(1, ft.Colors.GREY_200),
                 content=ft.Row([
                     ft.Icon(ft.Icons.CALENDAR_TODAY, size=14, color=ft.Colors.BLUE_400),
+                    ft.Text(f"Início: {data_db_para_br(p.get('data_criacao')) or '-'}",
+                            size=12, color=ft.Colors.GREY_600),
+                    ft.Text(f"{p.get('meses') or 0} meses",
+                            size=12, color=ft.Colors.GREY_600),
+                    ft.Text("=", size=12, color=ft.Colors.GREY_400),
                     ft.Text(data_db_para_br(p.get("data_vencimento")),
                             weight=ft.FontWeight.W_500, size=13),
                     ft.Container(
@@ -1403,7 +1470,7 @@ async def ver_contrato_dialog(page: ft.Page, contrato: dict, clientes_map: dict)
                     ) if p.get("tipo") else ft.Container(),
                     ft.Text(f"— {p.get('observacao') or ''}",
                             color=ft.Colors.GREY_600, size=13),
-                ], spacing=6),
+                ], spacing=6, wrap=True),
             )
         )
     if not prazos:

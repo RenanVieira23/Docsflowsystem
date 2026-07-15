@@ -3,15 +3,15 @@
 # Compatível com Flet 0.84.0
 #
 # Estrutura de tabs: ft.Tabs(content=ft.Column([TabBar, TabBarView]), length=N)
-# Download: salva em ~/Downloads e abre a pasta, via FilePickerService do projeto.
+# Download: grava o arquivo na pasta pública de uploads do Flet
+# (FLET_UPLOAD_DIR) e dispara o download no navegador via page.launch_url().
 
 from __future__ import annotations
 
 import asyncio
 import io
 import os
-import subprocess
-import sys
+import uuid
 from typing import Callable
 
 import flet as ft
@@ -25,7 +25,10 @@ from database.models_relatorios import (
     get_relatorio_contratos,
     get_relatorio_prazos,
 )
-from utils.dataptbr import data_db_para_br
+from database.models import get_tipos_contratos
+from database.supabase_client import run_db
+from utils.dataptbr import data_db_para_br, data_br_para_db
+from utils.calendario_ptbr import calendario_ptbr
 from utils.export_relatorios import (
     exportar_clientes_excel,  exportar_clientes_pdf,
     exportar_alertas_excel,   exportar_alertas_pdf,
@@ -198,13 +201,12 @@ def _row_contrato(d: dict) -> ft.DataRow:
 
 def _row_prazo(d: dict) -> ft.DataRow:
     return ft.DataRow(cells=[
-        ft.DataCell(ft.Text(d.get("cliente",    "") or "")),
-        ft.DataCell(ft.Text(d.get("contrato",   "") or "")),
-        ft.DataCell(ft.Text(d.get("tipo_prazo", "") or "")),
-        ft.DataCell(ft.Text(d.get("observacao", "") or "")),
-        ft.DataCell(ft.Text(str(d.get("meses",  "")))),
-        ft.DataCell(ft.Text(data_db_para_br(d.get("data_base",       "")))),
-        ft.DataCell(ft.Text(d.get("base_tipo",  "") or "")),
+        ft.DataCell(ft.Text(d.get("cliente",       "") or "")),
+        ft.DataCell(ft.Text(d.get("contrato",      "") or "")),
+        ft.DataCell(ft.Text(d.get("tipo_contrato", "") or "")),
+        ft.DataCell(ft.Text(d.get("tipo",          "") or "")),
+        ft.DataCell(ft.Text(d.get("observacao",    "") or "")),
+        ft.DataCell(ft.Text(str(d.get("meses",     "")))),
         ft.DataCell(ft.Text(data_db_para_br(d.get("data_criacao",    "")))),
         ft.DataCell(ft.Text(data_db_para_br(d.get("data_vencimento", "")))),
     ])
@@ -252,8 +254,47 @@ class RelatoriosView(ft.Column):
             ],
         )
         self._row_status = ft.Row(
-            [ft.Text("Status:", size=13), self.dd_status],
+            [ft.Text("", size=13), self.dd_status],
             visible=False, spacing=6,
+        )
+
+        # ── filtros: Data Início / Data Final / Tipo do Contrato (só aba Prazos) ──
+        def _abrir_cal_inicio(e):
+            def _on_pick(d):
+                self.tf_data_inicio.value = d.strftime("%d/%m/%Y")
+                self.app_page.update()
+            calendario_ptbr(self.app_page, on_select=_on_pick)
+
+        def _abrir_cal_final(e):
+            def _on_pick(d):
+                self.tf_data_final.value = d.strftime("%d/%m/%Y")
+                self.app_page.update()
+            calendario_ptbr(self.app_page, on_select=_on_pick)
+
+        self.tf_data_inicio = ft.TextField(
+            label="Data Início", width=140, read_only=True,
+            prefix_icon=ft.Icons.CALENDAR_TODAY,
+            on_click=_abrir_cal_inicio,
+        )
+        self.tf_data_final = ft.TextField(
+            label="Data Final", width=140, read_only=True,
+            prefix_icon=ft.Icons.CALENDAR_TODAY,
+            on_click=_abrir_cal_final,
+        )
+        self.dd_tipo_contrato = ft.Dropdown(
+            width=180,
+            label="Tipo",
+            value="todos",
+            options=[ft.dropdown.Option("todos", "Todos os tipos")],
+        )
+
+        self._row_prazos_filtros = ft.Row(
+            [
+                self.tf_data_inicio,
+                self.tf_data_final,
+                self.dd_tipo_contrato,
+            ],
+            visible=False, spacing=6, wrap=True,
         )
 
         # ── botões ─────────────────────────────────────────────────
@@ -313,15 +354,14 @@ class RelatoriosView(ft.Column):
             ),
             _TabelaPaginada(
                 colunas_def=[
-                    ("Cliente",    "cliente",         False),
-                    ("Contrato",   "contrato",        False),
-                    ("Tipo Prazo", "tipo_prazo",      False),
-                    ("Observação", "observacao",      False),
-                    ("Meses",      "meses",           True),
-                    ("Data Base",  "data_base",       False),
-                    ("Tipo Base",  "base_tipo",       False),
-                    ("Criação",    "data_criacao",    False),
-                    ("Vencimento", "data_vencimento", False),
+                    ("Cliente",       "cliente",         False),
+                    ("Contrato",      "contrato",        False),
+                    ("Tipo Contrato", "tipo_contrato",   False),
+                    ("Tipo Prazo",    "tipo",            False),
+                    ("Observação",    "observacao",      False),
+                    ("Meses",         "meses",           True),
+                    ("Início",        "data_criacao",    False),
+                    ("Vencimento",    "data_vencimento", False),
                 ],
                 row_builder=_row_prazo,
             ),
@@ -361,13 +401,20 @@ class RelatoriosView(ft.Column):
         self.controls = [
             ft.Container(
                 padding=ft.padding.symmetric(horizontal=4, vertical=8),
-                content=ft.Row(
+                content=ft.Column(
                     [
-                        ft.Text("Relatórios", size=22, weight=ft.FontWeight.BOLD),
                         ft.Row(
                             [
+                                ft.Text("Relatórios", size=22, weight=ft.FontWeight.BOLD),
                                 self.dd_cliente,
                                 self._row_status,
+                                self._row_prazos_filtros,
+                            ],
+                            spacing=10, wrap=True,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        ft.Row(
+                            [
                                 self.btn_filtrar,
                                 ft.VerticalDivider(width=1),
                                 self.btn_excel,
@@ -377,7 +424,7 @@ class RelatoriosView(ft.Column):
                             spacing=8,
                         ),
                     ],
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    spacing=8,
                 ),
             ),
             ft.Divider(height=1),
@@ -393,8 +440,8 @@ class RelatoriosView(ft.Column):
     async def _init(self):
         self._set_loading(True)
         try:
-            clientes = await asyncio.to_thread(
-                get_lista_clientes, self.tenant_id,
+            clientes = await run_db(
+                self.app_page, get_lista_clientes, self.tenant_id,
             )
             self.dd_cliente.options = (
                 [ft.dropdown.Option("todos", "Todos os clientes")]
@@ -406,6 +453,21 @@ class RelatoriosView(ft.Column):
                 pass
         except Exception as ex:
             print("❌ Erro ao carregar clientes dropdown:", ex)
+
+        try:
+            tipos_contrato = await run_db(
+                self.app_page, get_tipos_contratos, self.tenant_id,
+            )
+            self.dd_tipo_contrato.options = (
+                [ft.dropdown.Option("todos", "Todos os tipos")]
+                + [ft.dropdown.Option(t["nome"]) for t in (tipos_contrato or [])]
+            )
+            try:
+                self.dd_tipo_contrato.update()
+            except Exception:
+                pass
+        except Exception as ex:
+            print("❌ Erro ao carregar tipos de contrato dropdown:", ex)
 
         await self._carregar_aba()
         self._set_loading(False)
@@ -424,21 +486,26 @@ class RelatoriosView(ft.Column):
 
         try:
             if idx == 0:
-                dados = await asyncio.to_thread(
-                    get_relatorio_clientes, self.tenant_id, cliente_id,
+                dados = await run_db(
+                    self.app_page, get_relatorio_clientes, self.tenant_id, cliente_id,
                 )
             elif idx == 1:
-                dados = await asyncio.to_thread(
-                    get_relatorio_notificacoes,
+                dados = await run_db(
+                    self.app_page, get_relatorio_notificacoes,
                     self.tenant_id, self.dd_status.value, cliente_id,
                 )
             elif idx == 2:
-                dados = await asyncio.to_thread(
-                    get_relatorio_contratos, self.tenant_id, cliente_id,
+                dados = await run_db(
+                    self.app_page, get_relatorio_contratos, self.tenant_id, cliente_id,
                 )
             else:
-                dados = await asyncio.to_thread(
-                    get_relatorio_prazos, self.tenant_id, cliente_id,
+                tipo_contrato = self.dd_tipo_contrato.value
+                dados = await run_db(
+                    self.app_page, get_relatorio_prazos,
+                    self.tenant_id, cliente_id,
+                    data_br_para_db(self.tf_data_inicio.value),
+                    data_br_para_db(self.tf_data_final.value),
+                    tipo_contrato if tipo_contrato and tipo_contrato != "todos" else None,
                 )
 
             self._abas[idx].set_dados(dados)
@@ -454,8 +521,10 @@ class RelatoriosView(ft.Column):
     def _on_tab_change(self, e):
         self._idx = int(e.data)
         self._row_status.visible = (self._idx == 1)
+        self._row_prazos_filtros.visible = (self._idx == 3)
         try:
             self._row_status.update()
+            self._row_prazos_filtros.update()
         except Exception:
             pass
         self.app_page.run_task(self._reload)
@@ -516,28 +585,32 @@ class RelatoriosView(ft.Column):
 
     def _salvar(self, buf: io.BytesIO, nome: str):
         """
-        Salva o arquivo em ~/Downloads e abre a pasta,
-        usando o mesmo padrão do FilePickerService do projeto.
+        Grava o arquivo na pasta pública de uploads do Flet
+        (FLET_UPLOAD_DIR, servida na rota /uploads/...) e dispara
+        o download no NAVEGADOR do usuário via page.launch_url().
+
+        Importante: NUNCA salvar em os.path.expanduser("~") — em
+        produção (Render, modo WEB_BROWSER) essa é a home do
+        container do servidor, não do computador do usuário, e o
+        arquivo nunca chegaria até ele.
         """
         try:
-            pasta   = os.path.join(os.path.expanduser("~"), "Downloads")
-            os.makedirs(pasta, exist_ok=True)
-            caminho = os.path.join(pasta, nome)
+            upload_dir = os.environ.get("FLET_UPLOAD_DIR", "/tmp/flet_uploads")
+            os.makedirs(upload_dir, exist_ok=True)
+
+            # Nome único por exportação: evita que dois usuários
+            # exportando ao mesmo tempo sobrescrevam o arquivo um do outro.
+            nome_unico = f"{uuid.uuid4().hex}_{nome}"
+            caminho = os.path.join(upload_dir, nome_unico)
+
             with open(caminho, "wb") as f:
                 f.write(buf.getvalue())
-            try:
-                if sys.platform == "win32":
-                    os.startfile(pasta)
-                elif sys.platform == "darwin":
-                    subprocess.Popen(["open", pasta])
-                else:
-                    subprocess.Popen(["xdg-open", pasta])
-            except Exception:
-                pass
-            self._snack(f"Arquivo salvo em Downloads: {nome}")
+
+            self.app_page.launch_url(f"/uploads/{nome_unico}")
+            self._snack(f"Download iniciado: {nome}")
         except Exception as ex:
             print("❌ Erro ao salvar:", ex)
-            self._snack("Erro ao salvar o arquivo.")
+            self._snack("Erro ao gerar o download do arquivo.")
 
     # ══════════════════════════════════════════════════════════════
     # HELPERS

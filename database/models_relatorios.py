@@ -196,25 +196,44 @@ def get_relatorio_contratos(
 def get_relatorio_prazos(
     tenant_id: str,
     cliente_id: int | None = None,
+    data_inicio: str | None = None,
+    data_final: str | None = None,
+    tipo_contrato: str | None = None,
 ) -> list[dict]:
     """
     Todos os prazos do tenant com nome do cliente e do contrato.
-    Campos: cliente, contrato, tipo_prazo, observacao, meses,
-            data_base, base_tipo, data_criacao, data_vencimento
+    Campos: cliente, contrato, tipo, observacao, meses,
+            data_criacao (Data Início), data_vencimento, tipo_contrato
+
+    Filtros (todos opcionais):
+      cliente_id     -> id do cliente
+      data_inicio/data_final -> intervalo de data_vencimento (inclusive)
+      tipo_contrato  -> valor exato de contratos.tipo_contrato
+
+    FIX: a versão anterior buscava "data_base"/"base_tipo" (colunas que
+    não existem no schema atual) e um join "tipos_prazos(nome)" via
+    chave estrangeira que também não existe — "tipo" é uma coluna de
+    texto direta em "prazos". Isso fazia a consulta inteira falhar e
+    o relatório vir sempre vazio.
     """
     try:
         q = (
             supabase.table("prazos")
             .select(
-                "observacao, meses, data_base, base_tipo, data_criacao, data_vencimento,"
-                "tipos_prazos(nome),"
-                "contratos!inner(nome, deleted_at,"
+                "tipo, observacao, meses, data_criacao, data_vencimento,"
+                "contratos!inner(nome, deleted_at, tipo_contrato,"
                 "  clientes!inner(id, nome)"
                 ")"
             )
             .eq("tenant_id", tenant_id)
-            .order("data_vencimento")
         )
+
+        if data_inicio:
+            q = q.gte("data_vencimento", data_inicio)
+        if data_final:
+            q = q.lte("data_vencimento", data_final)
+
+        q = q.order("data_vencimento")
 
         resp = _safe(q, "Erro relatório prazos")
         if not resp or not resp.data:
@@ -222,9 +241,8 @@ def get_relatorio_prazos(
 
         resultado = []
         for row in resp.data:
-            contrato   = row.get("contratos") or {}
-            cliente    = contrato.get("clientes") or {}
-            tipo_prazo = row.get("tipos_prazos") or {}
+            contrato = row.get("contratos") or {}
+            cliente  = contrato.get("clientes") or {}
 
             # Ignora prazos de contratos deletados
             if contrato.get("deleted_at"):
@@ -233,14 +251,16 @@ def get_relatorio_prazos(
             if cliente_id and cliente.get("id") != cliente_id:
                 continue
 
+            if tipo_contrato and contrato.get("tipo_contrato") != tipo_contrato:
+                continue
+
             resultado.append({
                 "cliente":         cliente.get("nome", ""),
                 "contrato":        contrato.get("nome", ""),
-                "tipo_prazo":      tipo_prazo.get("nome", ""),
+                "tipo":            row.get("tipo", ""),
+                "tipo_contrato":   contrato.get("tipo_contrato", ""),
                 "observacao":      row.get("observacao", ""),
                 "meses":           row.get("meses", ""),
-                "data_base":       row.get("data_base", ""),
-                "base_tipo":       row.get("base_tipo", ""),
                 "data_criacao":    row.get("data_criacao", ""),
                 "data_vencimento": row.get("data_vencimento", ""),
             })

@@ -1,4 +1,5 @@
 from datetime import datetime
+from dateutil.relativedelta import relativedelta
 
 
 def data_db_para_br(data):
@@ -18,4 +19,19 @@ def data_br_para_db(data):
     try:
         return datetime.strptime(data, "%d/%m/%Y").strftime("%Y-%m-%d")
     except:
+        return None
+
+
+def somar_meses(data_iso: str, meses) -> str | None:
+    """
+    Soma 'meses' a uma data no formato ISO (YYYY-MM-DD) e retorna
+    também em ISO. Usado no cálculo automático do prazo:
+    Data = Data Início + Meses.
+    """
+    if not data_iso or meses in (None, ""):
+        return None
+    try:
+        base = datetime.strptime(data_iso, "%Y-%m-%d")
+        return (base + relativedelta(months=int(meses))).strftime("%Y-%m-%d")
+    except Exception:
         return None

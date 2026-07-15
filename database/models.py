@@ -343,6 +343,11 @@ def update_contrato(contrato_id: int, dados: dict):
 # ======================================================
 
 def add_prazo(contrato_id, meses, observacao, data_criacao, data_vencimento, tenant_id, tipo=None):
+    """
+    data_criacao = "Data Início" do prazo na tela (pode ser diferente da
+    data de assinatura do contrato). data_vencimento = calculada
+    automaticamente na tela como data_criacao + meses.
+    """
     try:
         novo_prazo = {
             "contrato_id": contrato_id,
@@ -809,6 +814,17 @@ def get_contrato_partes(contrato_id: int):
 def add_contrato_parte(contrato_id: int, parte_id: int, tipo_vinculo: str, tenant_id: str):
     """
     tenant_id é obrigatório para passar na política RLS de INSERT.
+
+    Usa upsert (não insert puro): se a mesma combinação
+    contrato_id + parte_id + tipo_vinculo já existir, apenas retorna
+    a linha existente em vez de dar erro de duplicidade. Isso torna
+    seguro tentar de novo automaticamente se a conexão cair no meio
+    do envio (ver _run_db_com_retry em pages/contratos/form.py) —
+    sem isso, uma nova tentativa depois de uma falha de rede poderia
+    criar linha duplicada ou falhar por violação de unicidade.
+
+    Requer a constraint única (contrato_id, parte_id, tipo_vinculo)
+    na tabela — ver instruções de SQL fornecidas.
     """
     try:
         if not tenant_id:
@@ -819,7 +835,11 @@ def add_contrato_parte(contrato_id: int, parte_id: int, tipo_vinculo: str, tenan
             "tipo_vinculo": tipo_vinculo,
             "tenant_id": tenant_id,  # ← obrigatório para RLS
         }
-        resp = supabase.table("contrato_partes").insert(payload).execute()
+        resp = (
+            supabase.table("contrato_partes")
+            .upsert(payload, on_conflict="contrato_id,parte_id,tipo_vinculo")
+            .execute()
+        )
         return resp.data[0] if resp.data else None
     except Exception as e:
         print(f"❌ Erro ao adicionar parte ao contrato: {e}")

@@ -231,14 +231,14 @@ def exportar_contratos_pdf(dados: list[dict]) -> tuple[io.BytesIO, str]:
 # ══════════════════════════════════════════════════════════════════════
 
 _CHAVES_PRA = [
-    "cliente", "contrato", "tipo_prazo", "observacao",
-    "meses", "data_base", "base_tipo", "data_criacao", "data_vencimento",
+    "cliente", "contrato", "tipo_contrato", "tipo", "observacao",
+    "meses", "data_criacao", "data_vencimento",
 ]
 _COLS_PRA = [
-    "Cliente", "Contrato", "Tipo de Prazo", "Observação",
-    "Meses", "Data Base", "Tipo Base", "Criação", "Vencimento",
+    "Cliente", "Contrato", "Tipo de Contrato", "Tipo de Prazo", "Observação",
+    "Meses", "Início", "Vencimento",
 ]
-_DATAS_PRA = {"data_base", "data_criacao", "data_vencimento"}
+_DATAS_PRA = {"data_criacao", "data_vencimento"}
 
 
 def exportar_prazos_excel(dados: list[dict]) -> tuple[io.BytesIO, str]:
