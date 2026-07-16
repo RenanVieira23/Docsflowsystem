@@ -3,15 +3,13 @@
 # Compatível com Flet 0.84.0
 #
 # Estrutura de tabs: ft.Tabs(content=ft.Column([TabBar, TabBarView]), length=N)
-# Download: grava o arquivo na pasta pública de uploads do Flet
-# (FLET_UPLOAD_DIR) e dispara o download no navegador via page.launch_url().
+# Download: FilePicker.save_file() com os bytes direto (src_bytes),
+# sem gravar em disco nem depender de nenhuma rota HTTP customizada.
 
 from __future__ import annotations
 
 import asyncio
 import io
-import os
-import uuid
 from typing import Callable
 
 import flet as ft
@@ -254,7 +252,7 @@ class RelatoriosView(ft.Column):
             ],
         )
         self._row_status = ft.Row(
-            [ft.Text("", size=13), self.dd_status],
+            [ft.Text("Status:", size=13), self.dd_status],
             visible=False, spacing=6,
         )
 
@@ -342,7 +340,7 @@ class RelatoriosView(ft.Column):
                 colunas_def=[
                     ("Cliente",         "cliente",         False),
                     ("Nome",            "nome",            False),
-                    ("Índice",          "indice",          False),
+                    ("Identificador",          "indice",          False),
                     ("Data Inicial",    "data_inicial",    False),
                     ("Data Assinatura", "data_assinatura", False),
                     ("Termo Final",     "termo_final",     False),
@@ -565,7 +563,7 @@ class RelatoriosView(ft.Column):
             return
 
         self._set_loading(False)
-        self._salvar(buf, nome)
+        await self._salvar(buf, nome)
 
     def _gerar_arquivo(
         self, fmt: str, idx: int, dados: list[dict],
@@ -583,30 +581,34 @@ class RelatoriosView(ft.Column):
         }
         return mapa[(idx, fmt)]()
 
-    def _salvar(self, buf: io.BytesIO, nome: str):
+    async def _salvar(self, buf: io.BytesIO, nome: str):
         """
-        Grava o arquivo na pasta pública de uploads do Flet
-        (FLET_UPLOAD_DIR, servida na rota /uploads/...) e dispara
-        o download no NAVEGADOR do usuário via page.launch_url().
+        FIX: abandonamos completamente a abordagem de gravar em disco +
+        launch_url() — mesmo corrigindo o await e abrindo em popup, o
+        navegador ainda tratava "/uploads/..." como uma rota do próprio
+        app (o Flet serve o app inteiro pra qualquer caminho não
+        reconhecido), então nada era baixado e só reaparecia a tela de
+        login numa sessão nova.
 
-        Importante: NUNCA salvar em os.path.expanduser("~") — em
-        produção (Render, modo WEB_BROWSER) essa é a home do
-        container do servidor, não do computador do usuário, e o
-        arquivo nunca chegaria até ele.
+        Agora usamos FilePicker.save_file() com os bytes diretamente
+        (src_bytes) — suportado em modo web pelo Flet, sem precisar de
+        pasta de upload, rota customizada, nem navegação de página
+        nenhuma. O diálogo de salvar do navegador abre e os bytes vão
+        direto, sem passar por disco nem por URL.
         """
         try:
-            upload_dir = os.environ.get("FLET_UPLOAD_DIR", "/tmp/flet_uploads")
-            os.makedirs(upload_dir, exist_ok=True)
+            picker = ft.FilePicker()
+            self.app_page.services.append(picker)
+            self.app_page.update()
+            try:
+                await picker.save_file(
+                    file_name=nome,
+                    src_bytes=buf.getvalue(),
+                )
+            finally:
+                self.app_page.services.remove(picker)
+                self.app_page.update()
 
-            # Nome único por exportação: evita que dois usuários
-            # exportando ao mesmo tempo sobrescrevam o arquivo um do outro.
-            nome_unico = f"{uuid.uuid4().hex}_{nome}"
-            caminho = os.path.join(upload_dir, nome_unico)
-
-            with open(caminho, "wb") as f:
-                f.write(buf.getvalue())
-
-            self.app_page.launch_url(f"/uploads/{nome_unico}")
             self._snack(f"Download iniciado: {nome}")
         except Exception as ex:
             print("❌ Erro ao salvar:", ex)
