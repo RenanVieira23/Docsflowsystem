@@ -414,11 +414,11 @@ def exportar_contratos_pdf(dados: list[dict]) -> tuple[io.BytesIO, str]:
 # ══════════════════════════════════════════════════════════════════════
 
 _CHAVES_PRA = [
-    "cliente", "contrato", "tipo_contrato", "tipo", "observacao",
+    "id", "cliente", "contrato", "tipo_contrato", "tipo", "observacao",
     "meses", "data_criacao", "data_vencimento",
 ]
 _COLS_PRA = [
-    "Cliente", "Contrato", "Tipo de Contrato", "Tipo de Prazo", "Observação",
+    "Identificador", "Cliente", "Contrato", "Tipo de Contrato", "Tipo de Prazo", "Observação",
     "Meses", "Início", "Vencimento",
 ]
 _DATAS_PRA = {"data_criacao", "data_vencimento"}

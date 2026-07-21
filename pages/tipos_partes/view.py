@@ -37,6 +37,7 @@ from database.models import (
     delete_tipo_prazo,
 )
 from database.supabase_client import run_db
+from utils.permissoes import pode
 
 
 # ======================================================
@@ -93,6 +94,7 @@ class TiposPartesView(ft.Column):
     # ======================================================
 
     def _bloco(self, titulo, descricao, campo, acao, lista):
+        pode_cadastrar = pode(self.app_page, "categorias", "cadastrar")
         return ft.Container(
             padding=20,
             border_radius=12,
@@ -105,6 +107,7 @@ class TiposPartesView(ft.Column):
                     padding=12, border_radius=8,
                     bgcolor=ft.Colors.BLUE_50,
                     border=ft.border.all(1, ft.Colors.BLUE_100),
+                    visible=pode_cadastrar,
                     content=ft.Row([
                         campo,
                         ft.FilledButton("Adicionar", height=36, on_click=acao),
@@ -162,13 +165,15 @@ class TiposPartesView(ft.Column):
                 width=260, dense=True,
             )
 
-            btn_editar  = ft.IconButton(icon=ft.Icons.EDIT_OUTLINED,  icon_size=18, tooltip="Editar")
+            btn_editar  = ft.IconButton(icon=ft.Icons.EDIT_OUTLINED,  icon_size=18, tooltip="Editar",
+                                        visible=pode(self.app_page, "categorias", "editar"))
             btn_salvar  = ft.IconButton(icon=ft.Icons.CHECK, icon_size=18, visible=False,
                                         icon_color=ft.Colors.GREEN, tooltip="Salvar")
             btn_cancelar= ft.IconButton(icon=ft.Icons.CLOSE, icon_size=18, visible=False,
                                         icon_color=ft.Colors.GREY,  tooltip="Cancelar")
             btn_excluir = ft.IconButton(icon=ft.Icons.DELETE_OUTLINE, icon_size=18,
-                                        icon_color=ft.Colors.RED_400, tooltip="Excluir")
+                                        icon_color=ft.Colors.RED_400, tooltip="Excluir",
+                                        visible=pode(self.app_page, "categorias", "editar"))
 
             row = ft.Container(
                 padding=ft.padding.symmetric(vertical=4, horizontal=10),
@@ -246,13 +251,15 @@ class TiposPartesView(ft.Column):
                 read_only=True, width=260, dense=True,
             )
 
-            btn_editar  = ft.IconButton(icon=ft.Icons.EDIT_OUTLINED,  icon_size=18)
+            btn_editar  = ft.IconButton(icon=ft.Icons.EDIT_OUTLINED,  icon_size=18,
+                                        visible=pode(self.app_page, "categorias", "editar"))
             btn_salvar  = ft.IconButton(icon=ft.Icons.CHECK, icon_size=18, visible=False,
                                         icon_color=ft.Colors.GREEN)
             btn_cancelar= ft.IconButton(icon=ft.Icons.CLOSE, icon_size=18, visible=False,
                                         icon_color=ft.Colors.GREY)
             btn_excluir = ft.IconButton(icon=ft.Icons.DELETE_OUTLINE, icon_size=18,
-                                        icon_color=ft.Colors.RED_400)
+                                        icon_color=ft.Colors.RED_400,
+                                        visible=pode(self.app_page, "categorias", "editar"))
 
             row = ft.Container(
                 padding=ft.padding.symmetric(vertical=4, horizontal=10),

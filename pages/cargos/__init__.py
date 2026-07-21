@@ -1,0 +1,1 @@
+from pages.cargos.view import cargos_view

@@ -184,6 +184,22 @@ def autenticar_usuario(email: str, senha: str):
 
         perfil = _merge_admin_flags(perfil, res.user)
 
+        # Cargo + permissões por módulo — carregados uma vez no login
+        # e guardados em page.local_store (ver pages/login/view.py),
+        # evitando consultar a cada clique.
+        cargo_nome = None
+        cargo_id = perfil.get("cargo_id")
+        if cargo_id:
+            cargo_resp = (
+                supabase.table("cargos").select("nome")
+                .eq("id", cargo_id).maybe_single().execute()
+            )
+            if cargo_resp and cargo_resp.data:
+                cargo_nome = cargo_resp.data.get("nome")
+
+        perfil["cargo_nome"] = cargo_nome
+        perfil["permissoes"] = get_permissoes_usuario(perfil)
+
         perfil["_session"] = {
             "access_token": token,
             "refresh_token": res.session.refresh_token,
@@ -899,6 +915,7 @@ def criar_usuario_admin(
     tenant_id: str,
     role: str = "user",
     is_admin: bool = False,
+    cargo_id: int | None = None,
 ) -> dict:
 
     if not supabase_admin:
@@ -925,6 +942,7 @@ def criar_usuario_admin(
             "tenant_id": tenant_id,
             "role": role,
             "is_admin": is_admin,
+            "cargo_id": cargo_id,
         }
 
         resp = (
@@ -1271,3 +1289,192 @@ def get_anexo_signed_url(arquivo_path: str, expires_in: int = 3600) -> str | Non
     except Exception as e:
         print(f"❌ erro get_anexo_signed_url: {e}")
         return None
+
+
+# ======================================================
+# 🔐 CARGOS E PERMISSÕES
+# ======================================================
+# Cada usuário tem exatamente 1 cargo (usuarios.cargo_id). Cada cargo
+# tem permissões independentes por módulo: ler / cadastrar / editar.
+# Módulos: clientes, contratos, categorias, prazos, partes.
+# Leitura roda no client autenticado da sessão (RLS já filtra pelo
+# tenant do JWT); escrita passa pela chave de serviço (mesmo padrão
+# de criar_usuario_admin), pois só a tela de Administração — já
+# protegida por is_admin/is_global_admin — chama essas funções.
+
+MODULOS_PERMISSAO = ["clientes", "contratos", "categorias", "prazos", "partes"]
+
+
+def get_cargos(tenant_id: str) -> list:
+    """Lista os cargos do tenant, ordenados (padrão primeiro, depois por nome)."""
+    try:
+        resp = _safe_exec(
+            supabase.table("cargos")
+            .select("*")
+            .eq("tenant_id", tenant_id)
+            .order("padrao", desc=True)
+            .order("nome"),
+            "Erro cargos",
+        )
+        return resp.data if resp else []
+    except Exception as e:
+        print(f"❌ Erro ao buscar cargos: {e}")
+        return []
+
+
+def get_cargo_permissoes(cargo_id: int) -> dict:
+    """Retorna {modulo: {pode_ler, pode_cadastrar, pode_editar}} para o cargo."""
+    try:
+        resp = _safe_exec(
+            supabase.table("cargo_permissoes").select("*").eq("cargo_id", cargo_id),
+            "Erro cargo_permissoes",
+        )
+        linhas = resp.data if resp else []
+        mapa = {m: {"pode_ler": False, "pode_cadastrar": False, "pode_editar": False}
+                for m in MODULOS_PERMISSAO}
+        for linha in linhas:
+            mapa[linha["modulo"]] = {
+                "pode_ler": bool(linha.get("pode_ler")),
+                "pode_cadastrar": bool(linha.get("pode_cadastrar")),
+                "pode_editar": bool(linha.get("pode_editar")),
+            }
+        return mapa
+    except Exception as e:
+        print(f"❌ Erro ao buscar permissões do cargo: {e}")
+        return {m: {"pode_ler": False, "pode_cadastrar": False, "pode_editar": False}
+                for m in MODULOS_PERMISSAO}
+
+
+def get_permissoes_usuario(usuario: dict) -> dict:
+    """
+    Atalho usado no login: a partir do perfil do usuário (que já traz
+    cargo_id), retorna o mapa de permissões pronto para guardar em
+    page.local_store. Usuário sem cargo (ainda não migrado/atribuído)
+    recebe permissão zerada em tudo — nunca acesso liberado por padrão.
+    """
+    cargo_id = usuario.get("cargo_id")
+    if not cargo_id:
+        return {m: {"pode_ler": False, "pode_cadastrar": False, "pode_editar": False}
+                for m in MODULOS_PERMISSAO}
+    return get_cargo_permissoes(cargo_id)
+
+
+def add_cargo(tenant_id: str, nome: str) -> dict:
+    """Cria um cargo novo (não-padrão) já com todas as permissões zeradas."""
+    try:
+        if not (nome or "").strip():
+            return {"_error": "Nome do cargo é obrigatório."}
+
+        resp = (
+            supabase_admin.table("cargos")
+            .insert({"tenant_id": tenant_id, "nome": nome.strip(), "padrao": False})
+            .execute()
+        )
+        cargo = resp.data[0] if resp.data else None
+        if not cargo:
+            return {"_error": "Não foi possível criar o cargo."}
+
+        supabase_admin.table("cargo_permissoes").insert([
+            {"cargo_id": cargo["id"], "modulo": m,
+             "pode_ler": False, "pode_cadastrar": False, "pode_editar": False}
+            for m in MODULOS_PERMISSAO
+        ]).execute()
+
+        return cargo
+    except Exception as e:
+        msg = str(e)
+        if "duplicate key" in msg or "unique" in msg.lower():
+            return {"_error": "Já existe um cargo com esse nome."}
+        print(f"❌ Erro ao criar cargo: {e}")
+        return {"_error": msg}
+
+
+def update_cargo_nome(cargo_id: int, nome: str) -> dict:
+    try:
+        if not (nome or "").strip():
+            return {"_error": "Nome do cargo é obrigatório."}
+        resp = (
+            supabase_admin.table("cargos")
+            .update({"nome": nome.strip()})
+            .eq("id", cargo_id)
+            .execute()
+        )
+        return resp.data[0] if resp.data else {"_error": "Cargo não encontrado."}
+    except Exception as e:
+        msg = str(e)
+        if "duplicate key" in msg or "unique" in msg.lower():
+            return {"_error": "Já existe um cargo com esse nome."}
+        print(f"❌ Erro ao renomear cargo: {e}")
+        return {"_error": msg}
+
+
+def delete_cargo(cargo_id: int) -> dict:
+    """
+    Bloqueia exclusão de cargos padrão (Leitor/Executor/Administrador)
+    e de cargos que ainda têm usuários vinculados — evita usuário
+    órfão sem nenhuma permissão por engano.
+    """
+    try:
+        cargo = (
+            supabase_admin.table("cargos").select("*")
+            .eq("id", cargo_id).maybe_single().execute()
+        )
+        cargo = cargo.data if cargo else None
+        if not cargo:
+            return {"_error": "Cargo não encontrado."}
+        if cargo.get("padrao"):
+            return {"_error": "Cargos padrão (Leitor, Executor, Administrador) não podem ser excluídos."}
+
+        vinculados = (
+            supabase_admin.table("usuarios").select("id", count="exact")
+            .eq("cargo_id", cargo_id).execute()
+        )
+        total_vinculados = vinculados.count if vinculados and vinculados.count is not None else len(vinculados.data or [])
+        if total_vinculados:
+            return {"_error": f"Existem {total_vinculados} usuário(s) com este cargo. Mude o cargo deles antes de excluir."}
+
+        supabase_admin.table("cargos").delete().eq("id", cargo_id).execute()
+        return {"ok": True}
+    except Exception as e:
+        print(f"❌ Erro ao excluir cargo: {e}")
+        return {"_error": str(e)}
+
+
+def set_permissao_cargo(cargo_id: int, modulo: str, pode_ler: bool, pode_cadastrar: bool, pode_editar: bool) -> dict:
+    """Upsert da permissão de um módulo específico dentro de um cargo."""
+    try:
+        if modulo not in MODULOS_PERMISSAO:
+            return {"_error": f"Módulo inválido: {modulo}"}
+
+        # cadastrar/editar sem poder ler não faz sentido — força consistência
+        pode_ler = pode_ler or pode_cadastrar or pode_editar
+
+        resp = (
+            supabase_admin.table("cargo_permissoes")
+            .upsert({
+                "cargo_id": cargo_id,
+                "modulo": modulo,
+                "pode_ler": pode_ler,
+                "pode_cadastrar": pode_cadastrar,
+                "pode_editar": pode_editar,
+            }, on_conflict="cargo_id,modulo")
+            .execute()
+        )
+        return resp.data[0] if resp.data else {"_error": "Não foi possível salvar a permissão."}
+    except Exception as e:
+        print(f"❌ Erro ao salvar permissão: {e}")
+        return {"_error": str(e)}
+
+
+def update_usuario_cargo(usuario_id: int, cargo_id: int) -> dict:
+    try:
+        resp = (
+            supabase_admin.table("usuarios")
+            .update({"cargo_id": cargo_id})
+            .eq("id", usuario_id)
+            .execute()
+        )
+        return resp.data[0] if resp.data else {"_error": "Usuário não encontrado."}
+    except Exception as e:
+        print(f"❌ Erro ao vincular cargo ao usuário: {e}")
+        return {"_error": str(e)}

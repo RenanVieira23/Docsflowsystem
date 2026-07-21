@@ -104,6 +104,13 @@ def login_view(page: ft.Page, navegar):
             page.local_store["is_admin"] = user.get("is_admin", False)
             page.local_store["is_global_admin"] = user.get("is_global_admin", False)
 
+            # Cargo + permissões por módulo (ver database/models.py ->
+            # autenticar_usuario / get_permissoes_usuario). Guardado uma
+            # vez aqui e lido em toda checagem via utils/permissoes.py.
+            page.local_store["cargo_id"] = user.get("cargo_id")
+            page.local_store["cargo_nome"] = user.get("cargo_nome")
+            page.local_store["permissoes"] = user.get("permissoes", {})
+
             # =========================
             # 🔥 ATUALIZA LAYOUT (CORRETO)
         # =========================

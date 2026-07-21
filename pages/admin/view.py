@@ -5,6 +5,8 @@ from database.models import (
     get_usuarios_do_tenant,
     get_usuarios,
     delete_usuario_admin,
+    get_cargos,
+    update_usuario_admin,
 )
 from database.supabase_client import run_db
 from pages.admin.form import criar_usuario_dialog, editar_usuario_dialog
@@ -21,6 +23,7 @@ class AdminView(ft.Column):
 
         self.app_page = page
         self.usuarios = []
+        self.cargos = []   # carregado junto com os usuários, usado no dropdown de cada linha
 
         # Tenant do admin logado
         self.tenant_id = page.local_store.get("tenant_id")
@@ -45,11 +48,26 @@ class AdminView(ft.Column):
                 ft.DataColumn(ft.Text("ID")),
                 ft.DataColumn(ft.Text("Nome (usuário)")),
                 ft.DataColumn(ft.Text("E-mail")),
-                ft.DataColumn(ft.Text("Role")),
+                ft.DataColumn(ft.Text("Cargo")),
                 ft.DataColumn(ft.Text("Admin")),
                 ft.DataColumn(ft.Text("Ações")),
             ],
             rows=[],
+        )
+
+        self.aviso_sem_cargos = ft.Container(
+            padding=12, border_radius=8, bgcolor=ft.Colors.AMBER_50,
+            border=ft.border.all(1, ft.Colors.AMBER_200),
+            visible=False,
+            content=ft.Row([
+                ft.Icon(ft.Icons.WARNING_AMBER_ROUNDED, color=ft.Colors.AMBER_700, size=18),
+                ft.Text(
+                    "Nenhum cargo cadastrado ainda para este tenant. "
+                    "Vá em 'Cargos e Permissões' no menu para criar/conferir os cargos "
+                    "antes de vinculá-los aos usuários.",
+                    size=12, color=ft.Colors.AMBER_900,
+                ),
+            ], spacing=8),
         )
 
         # =========================
@@ -82,11 +100,13 @@ class AdminView(ft.Column):
             ),
 
             ft.Text(
-                "Gerencie os usuários do sistema. "
+                "Gerencie os usuários do sistema e o cargo de cada um. "
                 "Somente administradores têm acesso a esta tela.",
                 color=ft.Colors.GREY_600,
                 size=13,
             ),
+
+            self.aviso_sem_cargos,
 
             ft.Divider(),
 
@@ -120,8 +140,17 @@ class AdminView(ft.Column):
         except Exception as ex:
             print("Erro admin usuários:", ex)
             dados = []
+            self._snack("Não foi possível carregar os usuários. Tente novamente.")
+
+        try:
+            self.cargos = await run_db(self.app_page, get_cargos, self.tenant_id) or []
+        except Exception as ex:
+            print("Erro admin cargos:", ex)
+            self.cargos = []
+            self._snack("Não foi possível carregar a lista de cargos.")
 
         self.usuarios = dados or []
+        self.aviso_sem_cargos.visible = not self.cargos
         self.loading.visible = False
         self._renderizar_tabela()
 
@@ -137,26 +166,11 @@ class AdminView(ft.Column):
 
         usuario_logado_id = self.app_page.local_store.get("usuario_id")
 
+        opcoes_cargo = [ft.dropdown.Option(str(c["id"]), c["nome"]) for c in self.cargos]
+
         for u in self.usuarios:
 
             eh_voce = u.get("id") == usuario_logado_id
-
-            badge_role = ft.Container(
-                padding=ft.padding.symmetric(horizontal=10, vertical=3),
-                border_radius=20,
-                bgcolor=(
-                    ft.Colors.BLUE_100 if u.get("role") == "admin"
-                    else ft.Colors.GREY_100
-                ),
-                content=ft.Text(
-                    u.get("role", "user"),
-                    size=12,
-                    color=(
-                        ft.Colors.BLUE_800 if u.get("role") == "admin"
-                        else ft.Colors.GREY_700
-                    ),
-                ),
-            )
 
             badge_admin = ft.Icon(
                 ft.Icons.VERIFIED,
@@ -164,6 +178,58 @@ class AdminView(ft.Column):
                 color=ft.Colors.AMBER_600,
                 tooltip="Admin",
             ) if u.get("is_admin") else ft.Text("-", color=ft.Colors.GREY_400)
+
+            dd_cargo = ft.Dropdown(
+                value=str(u.get("cargo_id")) if u.get("cargo_id") else None,
+                hint_text="Sem cargo" if not self.cargos else "Selecione",
+                options=opcoes_cargo,
+                width=180,
+                dense=True,
+                disabled=not self.cargos,  # sem cargos cadastrados, não dá pra escolher
+            )
+
+            async def _mudar_cargo(e, usuario=u, dd=dd_cargo):
+                if not dd.value:
+                    return
+
+                cargo_escolhido = next(
+                    (c for c in self.cargos if str(c["id"]) == dd.value), None
+                )
+                eh_admin = bool(cargo_escolhido and cargo_escolhido.get("nome") == "Administrador")
+
+                dd.disabled = True
+                dd.update()
+
+                try:
+                    resultado = await run_db(
+                        self.app_page, update_usuario_admin, usuario["id"],
+                        {"cargo_id": int(dd.value), "is_admin": eh_admin},
+                    )
+                except Exception as ex:
+                    self._snack(f"Erro de conexão ao mudar cargo: {ex}")
+                    dd.disabled = False
+                    dd.update()
+                    return
+
+                dd.disabled = False
+                dd.update()
+
+                if isinstance(resultado, dict) and resultado.get("_error"):
+                    self._snack(f"Erro ao mudar cargo: {resultado['_error']}")
+                    return
+
+                usuario["cargo_id"] = int(dd.value)
+                usuario["is_admin"] = eh_admin
+                self._snack(
+                    f"Cargo de '{usuario.get('usuario')}' atualizado para "
+                    f"'{cargo_escolhido['nome'] if cargo_escolhido else ''}'."
+                )
+                # Reflete a mudança no badge "Admin" sem precisar recarregar tudo
+                self._renderizar_tabela()
+
+            dd_cargo.on_change = lambda e, usuario=u, dd=dd_cargo: self.app_page.run_task(
+                _mudar_cargo, e, usuario, dd
+            )
 
             botoes = [
                 ft.TextButton(
@@ -191,13 +257,18 @@ class AdminView(ft.Column):
                     ft.DataCell(ft.Text(str(u.get("id", "")))),
                     ft.DataCell(ft.Text(u.get("usuario", ""), weight=ft.FontWeight.W_500)),
                     ft.DataCell(ft.Text(u.get("email") or "-", size=12)),
-                    ft.DataCell(badge_role),
+                    ft.DataCell(dd_cargo),
                     ft.DataCell(badge_admin),
                     ft.DataCell(ft.Row(botoes, spacing=4)),
                 ])
             )
 
         self.tabela.update()
+
+    def _snack(self, msg: str):
+        self.app_page.snack_bar = ft.SnackBar(ft.Text(msg))
+        self.app_page.snack_bar.open = True
+        self.app_page.update()
 
     # ======================================================
     # CRUD
@@ -236,7 +307,7 @@ class AdminView(ft.Column):
                 ft.FilledButton(
                     "Excluir",
                     style=ft.ButtonStyle(bgcolor=ft.Colors.RED),
-                    on_click=lambda e: self._excluir(usuario, dialog),
+                    on_click=lambda e: self.app_page.run_task(self._excluir, usuario, dialog),
                 ),
             ],
         )
@@ -244,8 +315,14 @@ class AdminView(ft.Column):
         dialog.open = True
         self.app_page.update()
 
-    def _excluir(self, usuario, dialog):
-        ok = delete_usuario_admin(usuario["id"])
+    async def _excluir(self, usuario, dialog):
+        try:
+            ok = await run_db(self.app_page, delete_usuario_admin, usuario["id"])
+        except Exception as ex:
+            dialog.open = False
+            self._snack(f"Erro de conexão ao excluir: {ex}")
+            return
+
         dialog.open = False
 
         msg = (
@@ -253,11 +330,8 @@ class AdminView(ft.Column):
             if ok else
             "Erro ao excluir usuário."
         )
-        self.app_page.snack_bar = ft.SnackBar(ft.Text(msg))
-        self.app_page.snack_bar.open = True
-
+        self._snack(msg)
         self.recarregar()
-        self.app_page.update()
 
     def _fechar(self, dialog):
         dialog.open = False

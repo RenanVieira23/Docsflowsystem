@@ -1,5 +1,7 @@
 import flet as ft
 
+from utils.permissoes import pode, eh_administrador, algum_modulo_leitura
+
 
 class AppLayout(ft.Column):
     def __init__(self, page: ft.Page, get_view):
@@ -39,7 +41,15 @@ class AppLayout(ft.Column):
         # =========================
         # SIDEBAR
         # =========================
-        self.sidebar = self._build_sidebar()
+        # FIX: o sidebar é montado antes do login acontecer (quando
+        # page.local_store ainda está vazio), então as checagens de
+        # permissão abaixo ficariam todas "false" pra sempre e o menu
+        # apareceria vazio até um F5. Por isso o sidebar mora dentro
+        # de um Container cujo .content é RECONSTRUÍDO a cada
+        # navigate() (ver _refresh_sidebar), já com as permissões da
+        # sessão atual.
+        self.sidebar = ft.Container(width=220, bgcolor="#0F2A44", padding=20)
+        self._refresh_sidebar()
 
         # =========================
         # LAYOUT PRINCIPAL
@@ -112,50 +122,69 @@ class AppLayout(ft.Column):
     # SIDEBAR
     # =====================================================
 
-    def _build_sidebar(self):
+    def _refresh_sidebar(self):
+        """Reconstrói o conteúdo do sidebar com as permissões atuais
+        da sessão. Chamado no __init__ e a cada navigate()."""
+        self.sidebar.content = self._build_sidebar_content()
+
+    def _build_sidebar_content(self):
 
         self.btn_admin = self._menu_btn("⚙️ Administração", "/admin")
+        self.btn_cargos = self._menu_btn("🔐 Cargos e Permissões", "/cargos")
 
-        return ft.Container(
-            width=220,
-            bgcolor="#0F2A44",
-            padding=20,
-            content=ft.Column(
-                [
-                    ft.Image(
-                        src="https://mefkcglvxqememduyweh.supabase.co/storage/v1/object/sign/Heringer/LogoDocsFlow2-removebg-preview.png?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV9jNjM3NDNjNi00NWY4LTRhYWUtODQ0NS05M2EzYmViNjg4OGYiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJIZXJpbmdlci9Mb2dvRG9jc0Zsb3cyLXJlbW92ZWJnLXByZXZpZXcucG5nIiwiaWF0IjoxNzc2ODAxMTI1LCJleHAiOjMzNTM2MDExMjV9.jqxPmg6Nmp6XfSppw6NUzjhnyINV0dw-x_Gv3ejjftg",
-                        width=160,
-                        height=44,
-                        error_content=ft.Text(
-                            "DocsFlow",
-                            size=20,
-                            weight=ft.FontWeight.BOLD,
-                            color=ft.Colors.WHITE,
-                        ),
+        itens_menu = []
+
+        itens_menu.append(self._menu_btn("Dashboard", "/dashboard"))
+
+        if pode(self.app_page, "clientes", "ler"):
+            itens_menu.append(self._menu_btn("Clientes", "/clientes"))
+
+        if pode(self.app_page, "categorias", "ler"):
+            itens_menu.append(self._menu_btn("Categorias", "/tipos-partes"))
+
+        if pode(self.app_page, "partes", "ler"):
+            itens_menu.append(self._menu_btn("Partes", "/partes"))
+
+        if pode(self.app_page, "contratos", "ler"):
+            itens_menu.append(self._menu_btn("Contratos", "/contratos"))
+
+        if pode(self.app_page, "prazos", "ler"):
+            itens_menu.append(self._menu_btn("Painel de Alertas", "/alertas"))
+            itens_menu.append(self._menu_btn("Cadastro de Prazos", "/alertas-cadastro"))
+
+        if algum_modulo_leitura(self.app_page):
+            itens_menu.append(self._menu_btn("Relatórios", "/relatorios"))
+
+        if eh_administrador(self.app_page):
+            itens_menu.append(self.btn_admin)
+            itens_menu.append(self.btn_cargos)
+
+        return ft.Column(
+            [
+                ft.Image(
+                    src="https://mefkcglvxqememduyweh.supabase.co/storage/v1/object/sign/Heringer/LogoDocsFlow2-removebg-preview.png?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV9jNjM3NDNjNi00NWY4LTRhYWUtODQ0NS05M2EzYmViNjg4OGYiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJIZXJpbmdlci9Mb2dvRG9jc0Zsb3cyLXJlbW92ZWJnLXByZXZpZXcucG5nIiwiaWF0IjoxNzc2ODAxMTI1LCJleHAiOjMzNTM2MDExMjV9.jqxPmg6Nmp6XfSppw6NUzjhnyINV0dw-x_Gv3ejjftg",
+                    width=160,
+                    height=44,
+                    error_content=ft.Text(
+                        "DocsFlow",
+                        size=20,
+                        weight=ft.FontWeight.BOLD,
+                        color=ft.Colors.WHITE,
                     ),
+                ),
 
-                    # =========================
-                    # TENANT DINÂMICO
-                    # =========================
-                    self.tenant_text,
+                # =========================
+                # TENANT DINÂMICO
+                # =========================
+                self.tenant_text,
 
-                    ft.Divider(color=ft.Colors.BLUE_300),
+                ft.Divider(color=ft.Colors.BLUE_300),
 
-                    self._menu_btn("Dashboard", "/dashboard"),
-                    self._menu_btn("Clientes", "/clientes"),
-                    self._menu_btn("Categorias", "/tipos-partes"),
-                    self._menu_btn("Partes", "/partes"),
-                    self._menu_btn("Contratos", "/contratos"),
-                    self._menu_btn("Painel de Alertas", "/alertas"),
-                    self._menu_btn("Cadastro de Prazos", "/alertas-cadastro"),
-                    self._menu_btn("Relatórios", "/relatorios"),
+                *itens_menu,
 
-                    self.btn_admin,
-
-                    ft.Container(expand=True),
-                ],
-                spacing=6,
-            ),
+                ft.Container(expand=True),
+            ],
+            spacing=6,
         )
 
     # =====================================================
@@ -227,12 +256,16 @@ class AppLayout(ft.Column):
 
         self.lbl_user.value = self.app_page.local_store.get("usuario_nome", "Usuário")
 
-        is_admin = (
-            self.app_page.local_store.get("is_admin", False)
-            or self.app_page.local_store.get("is_global_admin", False)
-        )
+        # FIX: o sidebar era montado uma única vez, antes do login (com
+        # page.local_store vazio) — as permissões nunca eram reavaliadas
+        # depois, então o menu ficava vazio até um F5. Agora ele é
+        # reconstruído a cada navegação, já refletindo o cargo/
+        # permissões da sessão atual.
+        self._refresh_sidebar()
 
-        if route == "/admin" and not is_admin:
+        is_admin = eh_administrador(self.app_page)
+
+        if route in ("/admin", "/cargos") and not is_admin:
             self.app_page.snack_bar = ft.SnackBar(
                 ft.Text("Acesso permitido apenas para administradores.")
             )

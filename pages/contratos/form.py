@@ -1014,7 +1014,7 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
         label="Identificador",
         value=contrato.get("indice") or "",
         width=380,
-        hint_text="Ex: IPCA, IGPM, INPC...",
+        hint_text="Identificador do Contrato",
     )
 
     tf_clausulas = ft.TextField(

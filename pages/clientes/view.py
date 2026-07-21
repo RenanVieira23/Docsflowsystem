@@ -5,6 +5,7 @@ from database.models import get_clientes
 from database.supabase_client import run_db
 from pages.clientes.form import novo_cliente_dialog, editar_cliente_dialog
 from utils.table_sort import SortState
+from utils.permissoes import pode
 
 
 # ======================================================
@@ -67,7 +68,10 @@ class ClientesView(ft.Column):
                     ft.Text("Clientes", size=22, weight=ft.FontWeight.BOLD),
                     ft.Row(
                         [
-                            ft.FilledButton("Novo cliente", height=38, on_click=self.abrir_dialog),
+                            ft.FilledButton(
+                                "Novo cliente", height=38, on_click=self.abrir_dialog,
+                                visible=pode(page, "clientes", "cadastrar"),
+                            ),
                             ft.OutlinedButton("Atualizar", height=38, on_click=self.recarregar),
                             self.loading,
                         ],
@@ -138,11 +142,16 @@ class ClientesView(ft.Column):
         ini = (self.current_page - 1) * self.page_size
         fim = ini + self.page_size
 
+        pode_editar = pode(self.app_page, "clientes", "editar")
+
         for c in lista[ini:fim]:
             botoes = [
-                ft.TextButton("Ver",    on_click=lambda e, cc=c: self.ver(cc)),
-                ft.TextButton("Editar", on_click=lambda e, cc=c: self.editar(cc)),
+                ft.TextButton("Ver", on_click=lambda e, cc=c: self.ver(cc)),
             ]
+            if pode_editar:
+                botoes.append(
+                    ft.TextButton("Editar", on_click=lambda e, cc=c: self.editar(cc))
+                )
 
             self.tabela.rows.append(
                 ft.DataRow(cells=[

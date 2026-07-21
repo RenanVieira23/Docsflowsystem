@@ -17,6 +17,7 @@ import asyncio
 from utils.calendario_ptbr import calendario_ptbr
 from utils.dataptbr import data_db_para_br, data_br_para_db
 from utils.table_sort import SortState
+from utils.permissoes import pode
 
 from database.models import (
     get_contratos,
@@ -214,7 +215,10 @@ class ContratosView(ft.Column):
             [
                 ft.Text("Contratos", size=24, weight=ft.FontWeight.BOLD),
                 ft.Row([
-                    ft.FilledButton("Novo", height=self.ui_btn_h, on_click=self.novo_contrato),
+                    ft.FilledButton(
+                        "Novo", height=self.ui_btn_h, on_click=self.novo_contrato,
+                        visible=pode(page, "contratos", "cadastrar"),
+                    ),
                     ft.OutlinedButton("Atualizar", height=self.ui_btn_h, on_click=self.recarregar),
                     self.loading,
                 ], spacing=8),
@@ -458,22 +462,27 @@ class ContratosView(ft.Column):
         ini = (self.current_page - 1) * self.page_size
         fim = ini + self.page_size
 
+        pode_editar = pode(self.app_page, "contratos", "editar")
+
         for i, c in enumerate(lista[ini:fim]):
             ativo  = self.is_ativo(c)
             status = "🟢" if ativo else "🔴"
 
             botoes = [
-                ft.TextButton("Ver",    on_click=lambda e, cc=c: self.ver(cc)),
-                ft.TextButton("Editar", on_click=lambda e, cc=c: self.editar(cc)),
+                ft.TextButton("Ver", on_click=lambda e, cc=c: self.ver(cc)),
             ]
-            if ativo:
-                botoes.append(ft.TextButton("Desativar",
-                    style=ft.ButtonStyle(color=ft.Colors.RED),
-                    on_click=lambda e, cc=c: self.confirmar_desativar(cc)))
-            else:
-                botoes.append(ft.TextButton("Reativar",
-                    style=ft.ButtonStyle(color=ft.Colors.GREEN),
-                    on_click=lambda e, cc=c: self.reativar(cc)))
+            if pode_editar:
+                botoes.append(
+                    ft.TextButton("Editar", on_click=lambda e, cc=c: self.editar(cc))
+                )
+                if ativo:
+                    botoes.append(ft.TextButton("Desativar",
+                        style=ft.ButtonStyle(color=ft.Colors.RED),
+                        on_click=lambda e, cc=c: self.confirmar_desativar(cc)))
+                else:
+                    botoes.append(ft.TextButton("Reativar",
+                        style=ft.ButtonStyle(color=ft.Colors.GREEN),
+                        on_click=lambda e, cc=c: self.reativar(cc)))
 
             row_bg = ft.Colors.with_opacity(0.03, ft.Colors.BLACK) if (i % 2 == 1) else None
 

@@ -9,7 +9,9 @@ from database.supabase_client import new_session_client, run_db
 from pages.partes.view import partes_view
 from pages.tipos_partes.view import tipos_partes_view
 from pages.alertas_cadastro.view import alertas_cadastro_view
+from pages.cargos.view import cargos_view
 from app.layout import AppLayout
+from utils.permissoes import pode, eh_administrador, algum_modulo_leitura, mensagem_sem_permissao
 
 
 def _as_bool(v):
@@ -98,38 +100,49 @@ def main(page: ft.Page):
             return dashboard.dashboard_view(page)
 
         if route == "/clientes":
+            if not pode(page, "clientes", "ler"):
+                return mensagem_sem_permissao("visualizar")
             return clientes.clientes_view(page)
 
         if route == "/contratos":
+            if not pode(page, "contratos", "ler"):
+                return mensagem_sem_permissao("visualizar")
             return contratos.contratos_view(page)
 
         if route in ["/alertas", "/painel"]:
+            if not pode(page, "prazos", "ler"):
+                return mensagem_sem_permissao("visualizar")
             return painel.painel_view(page)
 
         if route == "/relatorios":
+            if not algum_modulo_leitura(page):
+                return mensagem_sem_permissao("visualizar")
             return relatorios.relatorios_view(page)
 
         if route == "/partes":
+            if not pode(page, "partes", "ler"):
+                return mensagem_sem_permissao("visualizar")
             return partes_view(page)
 
         if route == "/tipos-partes":
+            if not pode(page, "categorias", "ler"):
+                return mensagem_sem_permissao("visualizar")
             return tipos_partes_view(page)
 
         if route == "/alertas-cadastro":
+            if not pode(page, "prazos", "ler"):
+                return mensagem_sem_permissao("visualizar")
             return alertas_cadastro_view(page)
 
         if route == "/admin":
-            is_admin = _as_bool(page.local_store.get("is_admin"))
-            is_global_admin = _as_bool(page.local_store.get("is_global_admin"))
-
-            if not (is_admin or is_global_admin):
-                return ft.Container(
-                    expand=True,
-                    padding=24,
-                    content=ft.Text("Acesso negado"),
-                )
-
+            if not eh_administrador(page):
+                return mensagem_sem_permissao("acessar")
             return admin_view(page)
+
+        if route == "/cargos":
+            if not eh_administrador(page):
+                return mensagem_sem_permissao("acessar")
+            return cargos_view(page)
 
         page.go("/dashboard")
         return ft.Container()

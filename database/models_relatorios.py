@@ -202,7 +202,7 @@ def get_relatorio_prazos(
 ) -> list[dict]:
     """
     Todos os prazos do tenant com nome do cliente e do contrato.
-    Campos: cliente, contrato, tipo, observacao, meses,
+    Campos: id (Identificador), cliente, contrato, tipo, observacao, meses,
             data_criacao (Data Início), data_vencimento, tipo_contrato
 
     Filtros (todos opcionais):
@@ -220,7 +220,7 @@ def get_relatorio_prazos(
         q = (
             supabase.table("prazos")
             .select(
-                "tipo, observacao, meses, data_criacao, data_vencimento,"
+                "id, tipo, observacao, meses, data_criacao, data_vencimento,"
                 "contratos!inner(nome, deleted_at, tipo_contrato,"
                 "  clientes!inner(id, nome)"
                 ")"
@@ -255,6 +255,7 @@ def get_relatorio_prazos(
                 continue
 
             resultado.append({
+                "id":              row.get("id", ""),
                 "cliente":         cliente.get("nome", ""),
                 "contrato":        contrato.get("nome", ""),
                 "tipo":            row.get("tipo", ""),

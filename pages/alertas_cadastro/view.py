@@ -11,6 +11,7 @@ from database.models import (
 from database.supabase_client import run_db
 from utils.dataptbr import data_br_para_db, data_db_para_br, somar_meses
 from utils.calendario_ptbr import calendario_ptbr
+from utils.permissoes import pode
 
 
 def _snack(page, msg):
@@ -161,7 +162,7 @@ class AlertasCadastroView(ft.Column):
         )
         # Calculada automaticamente (Data Início + Meses) — não editável,
         # sem calendário próprio.
-        tf_dt = ft.TextField(label="Data Alerta", read_only=True, width=150)
+        tf_dt = ft.TextField(label="Data", read_only=True, width=150)
         tf_ob = ft.TextField(label="Observação", expand=True)
 
         dd_tp = ft.Dropdown(
@@ -288,12 +289,10 @@ class AlertasCadastroView(ft.Column):
         # UI
         # =============================
 
-        self.painel_prazo.content = ft.Column([
-            ft.Text(f"{contrato['nome']} — Prazos"),
+        pode_cadastrar = pode(self.app_page, "prazos", "cadastrar")
 
-            prazos_col,
-
-            ft.Text("Cálculo automático: Data Alerta = Data Início + Meses",
+        formulario = ft.Column([
+            ft.Text("Cálculo automático: Data = Data Início + Meses",
                     size=11, color=ft.Colors.GREY_500, italic=True),
 
             ft.Row([
@@ -308,6 +307,21 @@ class AlertasCadastroView(ft.Column):
             lbl_err,
 
             ft.FilledButton("Salvar", on_click=salvar),
+        ], visible=pode_cadastrar)
+
+        self.painel_prazo.content = ft.Column([
+            ft.Text(f"{contrato['nome']} — Prazos"),
+
+            prazos_col,
+
+            formulario,
+
+            ft.Text(
+                "Você não tem permissão para cadastrar prazos.",
+                size=12, color=ft.Colors.GREY_500, italic=True,
+                visible=not pode_cadastrar,
+            ),
+
             ft.TextButton("Fechar", on_click=fechar),
         ])
 

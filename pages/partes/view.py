@@ -4,6 +4,7 @@ import asyncio
 from database.models import get_partes
 from database.supabase_client import run_db
 from pages.partes.form import nova_parte_dialog, editar_parte_dialog
+from utils.permissoes import pode
 
 
 # ======================================================
@@ -72,6 +73,7 @@ class PartesView(ft.Column):
                                 "Nova Parte",
                                 height=38,
                                 on_click=self.abrir_dialog,
+                                visible=pode(page, "partes", "cadastrar"),
                             ),
                             ft.OutlinedButton(
                                 "Atualizar",
@@ -186,6 +188,7 @@ class PartesView(ft.Column):
                             ft.TextButton(
                                 "Editar",
                                 on_click=lambda e, pp=p: self.editar(pp),
+                                visible=pode(self.app_page, "partes", "editar"),
                             ),
                         ], spacing=6)
                     ),

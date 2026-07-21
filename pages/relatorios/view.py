@@ -199,6 +199,7 @@ def _row_contrato(d: dict) -> ft.DataRow:
 
 def _row_prazo(d: dict) -> ft.DataRow:
     return ft.DataRow(cells=[
+        ft.DataCell(ft.Text(str(d.get("id",        "") or ""))),
         ft.DataCell(ft.Text(d.get("cliente",       "") or "")),
         ft.DataCell(ft.Text(d.get("contrato",      "") or "")),
         ft.DataCell(ft.Text(d.get("tipo_contrato", "") or "")),
@@ -340,7 +341,7 @@ class RelatoriosView(ft.Column):
                 colunas_def=[
                     ("Cliente",         "cliente",         False),
                     ("Nome",            "nome",            False),
-                    ("Identificador",          "indice",          False),
+                    ("Índice",          "indice",          False),
                     ("Data Inicial",    "data_inicial",    False),
                     ("Data Assinatura", "data_assinatura", False),
                     ("Termo Final",     "termo_final",     False),
@@ -352,6 +353,7 @@ class RelatoriosView(ft.Column):
             ),
             _TabelaPaginada(
                 colunas_def=[
+                    ("Identificador", "id",              True),
                     ("Cliente",       "cliente",         False),
                     ("Contrato",      "contrato",        False),
                     ("Tipo Contrato", "tipo_contrato",   False),
