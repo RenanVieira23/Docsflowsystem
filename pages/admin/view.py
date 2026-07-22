@@ -6,7 +6,6 @@ from database.models import (
     get_usuarios,
     delete_usuario_admin,
     get_cargos,
-    update_usuario_admin,
 )
 from database.supabase_client import run_db
 from pages.admin.form import criar_usuario_dialog, editar_usuario_dialog
@@ -166,8 +165,6 @@ class AdminView(ft.Column):
 
         usuario_logado_id = self.app_page.local_store.get("usuario_id")
 
-        opcoes_cargo = [ft.dropdown.Option(str(c["id"]), c["nome"]) for c in self.cargos]
-
         for u in self.usuarios:
 
             eh_voce = u.get("id") == usuario_logado_id
@@ -179,56 +176,17 @@ class AdminView(ft.Column):
                 tooltip="Admin",
             ) if u.get("is_admin") else ft.Text("-", color=ft.Colors.GREY_400)
 
-            dd_cargo = ft.Dropdown(
-                value=str(u.get("cargo_id")) if u.get("cargo_id") else None,
-                hint_text="Sem cargo" if not self.cargos else "Selecione",
-                options=opcoes_cargo,
-                width=180,
-                dense=True,
-                disabled=not self.cargos,  # sem cargos cadastrados, não dá pra escolher
+            # A lista só EXIBE o cargo (texto simples). A troca de cargo
+            # acontece exclusivamente pelo diálogo "Editar" — evita
+            # alterações acidentais direto na tabela e mantém um único
+            # lugar de validação (mesmo fluxo do cadastro de usuário).
+            cargo_atual = next(
+                (c for c in self.cargos if c["id"] == u.get("cargo_id")), None
             )
-
-            async def _mudar_cargo(e, usuario=u, dd=dd_cargo):
-                if not dd.value:
-                    return
-
-                cargo_escolhido = next(
-                    (c for c in self.cargos if str(c["id"]) == dd.value), None
-                )
-                eh_admin = bool(cargo_escolhido and cargo_escolhido.get("nome") == "Administrador")
-
-                dd.disabled = True
-                dd.update()
-
-                try:
-                    resultado = await run_db(
-                        self.app_page, update_usuario_admin, usuario["id"],
-                        {"cargo_id": int(dd.value), "is_admin": eh_admin},
-                    )
-                except Exception as ex:
-                    self._snack(f"Erro de conexão ao mudar cargo: {ex}")
-                    dd.disabled = False
-                    dd.update()
-                    return
-
-                dd.disabled = False
-                dd.update()
-
-                if isinstance(resultado, dict) and resultado.get("_error"):
-                    self._snack(f"Erro ao mudar cargo: {resultado['_error']}")
-                    return
-
-                usuario["cargo_id"] = int(dd.value)
-                usuario["is_admin"] = eh_admin
-                self._snack(
-                    f"Cargo de '{usuario.get('usuario')}' atualizado para "
-                    f"'{cargo_escolhido['nome'] if cargo_escolhido else ''}'."
-                )
-                # Reflete a mudança no badge "Admin" sem precisar recarregar tudo
-                self._renderizar_tabela()
-
-            dd_cargo.on_change = lambda e, usuario=u, dd=dd_cargo: self.app_page.run_task(
-                _mudar_cargo, e, usuario, dd
+            texto_cargo = ft.Text(
+                cargo_atual["nome"] if cargo_atual else "Sem cargo",
+                color=ft.Colors.GREY_800 if cargo_atual else ft.Colors.RED_400,
+                italic=not cargo_atual,
             )
 
             botoes = [
@@ -257,7 +215,7 @@ class AdminView(ft.Column):
                     ft.DataCell(ft.Text(str(u.get("id", "")))),
                     ft.DataCell(ft.Text(u.get("usuario", ""), weight=ft.FontWeight.W_500)),
                     ft.DataCell(ft.Text(u.get("email") or "-", size=12)),
-                    ft.DataCell(dd_cargo),
+                    ft.DataCell(texto_cargo),
                     ft.DataCell(badge_admin),
                     ft.DataCell(ft.Row(botoes, spacing=4)),
                 ])

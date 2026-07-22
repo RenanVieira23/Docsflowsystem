@@ -24,6 +24,7 @@ from database.models import (
     get_clientes,
     update_contrato,
     registrar_log,
+    get_nomes_partes_por_contrato,
 )
 from database.supabase_client import run_db
 
@@ -93,6 +94,7 @@ class ContratosView(ft.Column):
         self.contratos = []
         self.contratos_filtrados = []
         self.clientes_map = {}
+        self.partes_map = {}
         self.status_value = "ativos"
 
         # Ordenação
@@ -113,7 +115,7 @@ class ContratosView(ft.Column):
         # BUSCA
         # =========================
         self.busca = ft.TextField(
-            hint_text="Buscar apelido / contrato...",
+            hint_text="Buscar por contrato, cliente, parte vinculada, cláusula...",
             height=self.ui_h,
             text_size=self.ui_font,
             expand=True,
@@ -382,16 +384,21 @@ class ContratosView(ft.Column):
                 contratos = []
                 clientes = []
             else:
-                contratos = await run_db(self.app_page, get_contratos, self.tenant_id)
-                clientes  = await run_db(self.app_page, get_clientes,  self.tenant_id)
+                contratos, clientes, partes_map = await asyncio.gather(
+                    run_db(self.app_page, get_contratos, self.tenant_id),
+                    run_db(self.app_page, get_clientes,  self.tenant_id),
+                    run_db(self.app_page, get_nomes_partes_por_contrato, self.tenant_id),
+                )
 
         except Exception as ex:
             print("Erro contratos:", ex)
             contratos = []
             clientes = []
+            partes_map = {}
 
         self.contratos = contratos or []
         self.clientes_map = {c["id"]: c["nome"] for c in (clientes or [])}
+        self.partes_map = partes_map or {}
 
         self.loading.visible = False
         self.aplicar_filtros()
@@ -427,11 +434,14 @@ class ContratosView(ft.Column):
         if termo:
             def match(c):
                 cliente = self.clientes_map.get(c.get("cliente_id"), "").lower()
+                partes  = self.partes_map.get(c.get("id"), "").lower()
                 texto = " ".join([
                     str(c.get("id", "")), str(c.get("nome", "")), cliente,
                     str(c.get("indice", "")), str(c.get("responsavel", "")),
                     str(c.get("data_assinatura", "")), str(c.get("vigencia", "")),
                     str(c.get("data_inicial", "")), str(c.get("termo_final", "")),
+                    str(c.get("tipo_contrato", "")), str(c.get("clausulas", "")),
+                    partes,
                     "ativo" if self.is_ativo(c) else "inativo",
                 ]).lower()
                 return termo in texto

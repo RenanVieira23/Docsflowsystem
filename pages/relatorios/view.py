@@ -23,7 +23,7 @@ from database.models_relatorios import (
     get_relatorio_contratos,
     get_relatorio_prazos,
 )
-from database.models import get_tipos_contratos
+from database.models import get_tipos_contratos, get_tipos_prazos
 from database.supabase_client import run_db
 from utils.dataptbr import data_db_para_br, data_br_para_db
 from utils.calendario_ptbr import calendario_ptbr
@@ -282,7 +282,13 @@ class RelatoriosView(ft.Column):
         )
         self.dd_tipo_contrato = ft.Dropdown(
             width=180,
-            label="Tipo",
+            label="Tipo de Contrato",
+            value="todos",
+            options=[ft.dropdown.Option("todos", "Todos os tipos")],
+        )
+        self.dd_tipo_prazo = ft.Dropdown(
+            width=180,
+            label="Tipo de Prazo",
             value="todos",
             options=[ft.dropdown.Option("todos", "Todos os tipos")],
         )
@@ -292,6 +298,7 @@ class RelatoriosView(ft.Column):
                 self.tf_data_inicio,
                 self.tf_data_final,
                 self.dd_tipo_contrato,
+                self.dd_tipo_prazo,
             ],
             visible=False, spacing=6, wrap=True,
         )
@@ -353,7 +360,7 @@ class RelatoriosView(ft.Column):
             ),
             _TabelaPaginada(
                 colunas_def=[
-                    ("Identificador", "id",              True),
+                    ("ID", "id",              True),
                     ("Cliente",       "cliente",         False),
                     ("Contrato",      "contrato",        False),
                     ("Tipo Contrato", "tipo_contrato",   False),
@@ -469,6 +476,21 @@ class RelatoriosView(ft.Column):
         except Exception as ex:
             print("❌ Erro ao carregar tipos de contrato dropdown:", ex)
 
+        try:
+            tipos_prazo = await run_db(
+                self.app_page, get_tipos_prazos, self.tenant_id,
+            )
+            self.dd_tipo_prazo.options = (
+                [ft.dropdown.Option("todos", "Todos os tipos")]
+                + [ft.dropdown.Option(t["nome"]) for t in (tipos_prazo or [])]
+            )
+            try:
+                self.dd_tipo_prazo.update()
+            except Exception:
+                pass
+        except Exception as ex:
+            print("❌ Erro ao carregar tipos de prazo dropdown:", ex)
+
         await self._carregar_aba()
         self._set_loading(False)
 
@@ -500,12 +522,14 @@ class RelatoriosView(ft.Column):
                 )
             else:
                 tipo_contrato = self.dd_tipo_contrato.value
+                tipo_prazo = self.dd_tipo_prazo.value
                 dados = await run_db(
                     self.app_page, get_relatorio_prazos,
                     self.tenant_id, cliente_id,
                     data_br_para_db(self.tf_data_inicio.value),
                     data_br_para_db(self.tf_data_final.value),
                     tipo_contrato if tipo_contrato and tipo_contrato != "todos" else None,
+                    tipo_prazo if tipo_prazo and tipo_prazo != "todos" else None,
                 )
 
             self._abas[idx].set_dados(dados)

@@ -7,6 +7,7 @@ from database.models import (
     get_tipos_prazos_db,
     add_prazo,
     get_prazos_por_contrato,
+    get_nomes_partes_por_contrato,
 )
 from database.supabase_client import run_db
 from utils.dataptbr import data_br_para_db, data_db_para_br, somar_meses
@@ -31,12 +32,13 @@ class AlertasCadastroView(ft.Column):
         self.contratos    = []
         self.filtrados    = []
         self.clientes_map = {}
+        self.partes_map   = {}
         self.selecionado  = None
 
         self.loading = ft.ProgressRing(visible=False, width=18, height=18, stroke_width=2)
 
         self.tf_busca = ft.TextField(
-            hint_text="Buscar contrato (apelido, cliente, responsável...)",
+            hint_text="Buscar por contrato, cliente, parte vinculada, cláusula...",
             expand=True, height=38, on_change=self._filtrar,
         )
 
@@ -78,14 +80,19 @@ class AlertasCadastroView(ft.Column):
         self.app_page.update()
 
         try:
-            contratos = await run_db(self.app_page, get_contratos, self.tenant_id)
-            clientes  = await run_db(self.app_page, get_clientes, self.tenant_id)
+            contratos, clientes, partes_map = await asyncio.gather(
+                run_db(self.app_page, get_contratos, self.tenant_id),
+                run_db(self.app_page, get_clientes, self.tenant_id),
+                run_db(self.app_page, get_nomes_partes_por_contrato, self.tenant_id),
+            )
         except Exception as ex:
             print("Erro alertas_cadastro:", ex)
             contratos = clientes = []
+            partes_map = {}
 
         self.contratos = contratos or []
         self.clientes_map = {c["id"]: c["nome"] for c in (clientes or [])}
+        self.partes_map = partes_map or {}
 
         self.loading.visible = False
         self._filtrar()
@@ -94,13 +101,20 @@ class AlertasCadastroView(ft.Column):
         termo = (self.tf_busca.value or "").lower().strip()
 
         if termo:
-            self.filtrados = [
-                c for c in self.contratos
-                if termo in str(c.get("nome", "")).lower()
-                or termo in self.clientes_map.get(c.get("cliente_id"), "").lower()
-                or termo in str(c.get("indice") or "").lower()
-                or termo in str(c.get("responsavel") or "").lower()
-            ]
+            def match(c):
+                partes = self.partes_map.get(c.get("id"), "").lower()
+                texto = " ".join([
+                    str(c.get("id", "")),
+                    str(c.get("nome", "")),
+                    self.clientes_map.get(c.get("cliente_id"), ""),
+                    str(c.get("indice") or ""),
+                    str(c.get("responsavel") or ""),
+                    str(c.get("tipo_contrato") or ""),
+                    str(c.get("Observação") or ""),
+                    partes,
+                ]).lower()
+                return termo in texto
+            self.filtrados = [c for c in self.contratos if match(c)]
         else:
             self.filtrados = list(self.contratos)
 

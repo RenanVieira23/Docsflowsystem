@@ -199,6 +199,7 @@ def get_relatorio_prazos(
     data_inicio: str | None = None,
     data_final: str | None = None,
     tipo_contrato: str | None = None,
+    tipo_prazo: str | None = None,
 ) -> list[dict]:
     """
     Todos os prazos do tenant com nome do cliente e do contrato.
@@ -209,6 +210,7 @@ def get_relatorio_prazos(
       cliente_id     -> id do cliente
       data_inicio/data_final -> intervalo de data_vencimento (inclusive)
       tipo_contrato  -> valor exato de contratos.tipo_contrato
+      tipo_prazo     -> valor exato de prazos.tipo (ex: "Vencimento")
 
     FIX: a versão anterior buscava "data_base"/"base_tipo" (colunas que
     não existem no schema atual) e um join "tipos_prazos(nome)" via
@@ -232,6 +234,8 @@ def get_relatorio_prazos(
             q = q.gte("data_vencimento", data_inicio)
         if data_final:
             q = q.lte("data_vencimento", data_final)
+        if tipo_prazo:
+            q = q.eq("tipo", tipo_prazo)
 
         q = q.order("data_vencimento")
 

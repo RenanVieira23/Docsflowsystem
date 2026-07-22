@@ -813,6 +813,35 @@ def delete_tipo_parte(tipo_id: int):
 # FIX RLS: tenant_id agora obrigatório no insert
 # ======================================================
 
+def get_nomes_partes_por_contrato(tenant_id: str) -> dict:
+    """
+    Retorna {contrato_id: "Nome da parte 1, Nome da parte 2, ..."} —
+    os nomes das partes vinculadas a cada contrato do tenant, numa
+    ÚNICA consulta (evita N+1: uma chamada por contrato). Usado para
+    permitir buscar contratos pelo nome de uma parte vinculada, tanto
+    na listagem de contratos quanto no cadastro de prazos.
+    """
+    try:
+        resp = (
+            supabase.table("contrato_partes")
+            .select("contrato_id, partes!inner(nome), contratos!inner(tenant_id)")
+            .eq("contratos.tenant_id", tenant_id)
+            .execute()
+        )
+        agrupado: dict[int, list[str]] = {}
+        for row in (resp.data or []):
+            cid = row.get("contrato_id")
+            nome = (row.get("partes") or {}).get("nome", "")
+            if not cid or not nome:
+                continue
+            agrupado.setdefault(cid, []).append(nome)
+
+        return {cid: ", ".join(nomes) for cid, nomes in agrupado.items()}
+    except Exception as e:
+        print(f"❌ Erro ao buscar partes por contrato: {e}")
+        return {}
+
+
 def get_contrato_partes(contrato_id: int):
     try:
         resp = (
