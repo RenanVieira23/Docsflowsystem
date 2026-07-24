@@ -125,17 +125,6 @@ class ContratosView(ft.Column):
         # =========================
         # FILTRO PERÍODO
         # =========================
-        self.filtro_inicio = ft.TextField(
-            hint_text="Início (dd/mm/aaaa)",
-            width=180, read_only=True,
-            height=self.ui_h, text_size=self.ui_font,
-        )
-        self.filtro_fim = ft.TextField(
-            hint_text="Fim (dd/mm/aaaa)",
-            width=180, read_only=True,
-            height=self.ui_h, text_size=self.ui_font,
-        )
-
         def _set_inicio(d):
             self.filtro_inicio.value = d.strftime("%d/%m/%Y")
             self.aplicar_filtros()
@@ -152,20 +141,27 @@ class ContratosView(ft.Column):
         def escolher_fim(e):
             calendario_ptbr(self.app_page, on_select=_set_fim)
 
+        self.filtro_inicio = ft.TextField(
+            hint_text="Início (dd/mm/aaaa)",
+            width=180, read_only=True,
+            height=self.ui_h, text_size=self.ui_font,
+            prefix_icon=ft.Icons.CALENDAR_TODAY,
+            on_click=escolher_inicio,
+        )
+        self.filtro_fim = ft.TextField(
+            hint_text="Fim (dd/mm/aaaa)",
+            width=180, read_only=True,
+            height=self.ui_h, text_size=self.ui_font,
+            prefix_icon=ft.Icons.CALENDAR_TODAY,
+            on_click=escolher_fim,
+        )
+
         def _limpar_periodo(e):
             self.filtro_inicio.value = ""
             self.filtro_fim.value = ""
             self.aplicar_filtros()
             self.app_page.update()
 
-        self.btn_inicio = ft.TextButton(
-            "📅", tooltip="Selecionar início", on_click=escolher_inicio,
-            style=ft.ButtonStyle(padding=ft.padding.all(4)),
-        )
-        self.btn_fim = ft.TextButton(
-            "📅", tooltip="Selecionar fim", on_click=escolher_fim,
-            style=ft.ButtonStyle(padding=ft.padding.all(4)),
-        )
         self.btn_limpar_periodo = ft.TextButton(
             "Limpar período",
             on_click=_limpar_periodo,
@@ -232,8 +228,8 @@ class ContratosView(ft.Column):
         periodo_group = ft.Row(
             [
                 ft.Text("Período:", size=12, color=ft.Colors.BLACK87),
-                self.btn_inicio, self.filtro_inicio,
-                self.btn_fim, self.filtro_fim,
+                self.filtro_inicio,
+                self.filtro_fim,
             ],
             spacing=10,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,

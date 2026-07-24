@@ -714,18 +714,37 @@ async def novo_contrato_dialog(page: ft.Page, atualizar_lista):
     # DATAS
     # ======================================================
 
+    def _set_data_ini(d):
+        tf_data_ini.value = d.strftime("%d/%m/%Y")
+        recalcular()
+        page.update()
+
+    def _set_data_ass(d):
+        tf_data_ass.value = d.strftime("%d/%m/%Y")
+        page.update()
+
+    def cal_ini(e):
+        calendario_ptbr(page, on_select=_set_data_ini)
+
+    def cal_ass(e):
+        calendario_ptbr(page, on_select=_set_data_ass)
+
     tf_data_ini = ft.TextField(
         label="Data inicial (DD/MM/AAAA)",
         width=190,
         hint_text="Ex: 01/01/2025",
-        read_only=True
+        read_only=True,
+        prefix_icon=ft.Icons.CALENDAR_TODAY,
+        on_click=cal_ini,
     )
 
     tf_data_ass = ft.TextField(
         label="Data de assinatura",
         width=190,
         hint_text="Ex: 01/01/2025",
-        read_only=True
+        read_only=True,
+        prefix_icon=ft.Icons.CALENDAR_TODAY,
+        on_click=cal_ass,
     )
 
     tf_vig = ft.TextField(
@@ -752,21 +771,6 @@ async def novo_contrato_dialog(page: ft.Page, atualizar_lista):
             )
         else:
             tf_fim.value = ""
-
-    def _set_data_ini(d):
-        tf_data_ini.value = d.strftime("%d/%m/%Y")
-        recalcular()
-        page.update()
-
-    def _set_data_ass(d):
-        tf_data_ass.value = d.strftime("%d/%m/%Y")
-        page.update()
-
-    def cal_ini(e):
-        calendario_ptbr(page, on_select=_set_data_ini)
-
-    def cal_ass(e):
-        calendario_ptbr(page, on_select=_set_data_ass)
 
     tf_vig.on_change = lambda e: (recalcular(), page.update())
 
@@ -898,30 +902,10 @@ async def novo_contrato_dialog(page: ft.Page, atualizar_lista):
                         spacing=20,
                         wrap=True,
                         controls=[
-                            ft.Column(
-                                spacing=6,
-                                controls=[
-                                    ft.OutlinedButton(
-                                        "Data inicial",
-                                        icon=ft.Icons.CALENDAR_TODAY,
-                                        on_click=cal_ini
-                                    ),
-                                    tf_data_ini,
-                                ],
-                            ),
-                            ft.Column(
-                                spacing=6,
-                                controls=[
-                                    ft.OutlinedButton(
-                                        "Data assinatura",
-                                        icon=ft.Icons.CALENDAR_TODAY,
-                                        on_click=cal_ass
-                                    ),
-                                    tf_data_ass,
-            ],
-        ),
-    ],
-),
+                            tf_data_ini,
+                            tf_data_ass,
+                        ],
+                    ),
                     ft.Row([tf_vig, tf_fim], spacing=16),
 
                     ft.Divider(height=1),
@@ -1014,7 +998,7 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
         label="Identificador",
         value=contrato.get("indice") or "",
         width=380,
-        hint_text="Identificador do Contrato",
+        hint_text="Ex: IPCA, IGPM, INPC...",
     )
 
     tf_clausulas = ft.TextField(
@@ -1034,11 +1018,20 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
         disabled=True,
     )
 
+    def _set_data_ass(d):
+        tf_data_ass.value = d.strftime("%d/%m/%Y")
+        page.update()
+
+    def cal_ass(e):
+        calendario_ptbr(page, on_select=_set_data_ass)
+
     tf_data_ass = ft.TextField(
         label="Data de assinatura",
         value=data_db_para_br(contrato.get("data_assinatura")),
         width=190,
         read_only=True,
+        prefix_icon=ft.Icons.CALENDAR_TODAY,
+        on_click=cal_ass,
     )
 
     tf_vig = ft.TextField(
@@ -1064,13 +1057,6 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
             tf_fim.value = ""
         page.update()
 
-    def _set_data_ass(d):
-        tf_data_ass.value = d.strftime("%d/%m/%Y")
-        page.update()
-
-    def cal_ass(e):
-        calendario_ptbr(page, on_select=_set_data_ass)
-
     tf_vig.on_change = lambda e: recalcular()
     recalcular()
 
@@ -1083,8 +1069,15 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
     excluir_prazos   = set()
 
     def criar_linha_prazo(pid, data_inicio="", meses="", obs="", tipo=None, existente=False):
-        tf_i = ft.TextField(label="Data Início", value=data_db_para_br(data_inicio),
-                            width=140, read_only=True)
+        def cal_p(e):
+            calendario_ptbr(page, on_select=_set_data_inicio)
+
+        tf_i = ft.TextField(
+            label="Data Início", value=data_db_para_br(data_inicio),
+            width=140, read_only=True,
+            prefix_icon=ft.Icons.CALENDAR_TODAY,
+            on_click=cal_p,
+        )
         tf_m = ft.TextField(
             label="Meses", value=str(meses) if meses not in (None, "", 0) else "",
             width=80,
@@ -1113,9 +1106,6 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
             tf_i.value = d.strftime("%d/%m/%Y")
             _recalcular()
 
-        def cal_p(e):
-            calendario_ptbr(page, on_select=_set_data_inicio)
-
         # Calcula a data já na criação da linha (prazos existentes)
         _recalcular()
 
@@ -1126,9 +1116,7 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
             page.update()
 
         row = ft.Row(
-            [ft.OutlinedButton("Data Início", icon=ft.Icons.CALENDAR_TODAY,
-                               height=32, on_click=cal_p),
-             tf_i,
+            [tf_i,
              tf_m,
              tf_d,
              dd_t,
@@ -1273,14 +1261,7 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
                                 ft.Text("Data inicial:", size=12, color=ft.Colors.GREY_600),
                                 tf_data_ini,
                             ]),
-                            ft.Column(spacing=6, controls=[
-                                ft.OutlinedButton(
-                                    "Data assinatura",
-                                    icon=ft.Icons.CALENDAR_TODAY,
-                                    on_click=cal_ass,
-                                ),
-                                tf_data_ass,
-                            ]),
+                            tf_data_ass,
                         ],
                     ),
 

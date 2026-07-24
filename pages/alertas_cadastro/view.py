@@ -13,6 +13,7 @@ from database.supabase_client import run_db
 from utils.dataptbr import data_br_para_db, data_db_para_br, somar_meses
 from utils.calendario_ptbr import calendario_ptbr
 from utils.permissoes import pode
+from pages.contratos.form import ver_contrato_dialog
 
 
 def _snack(page, msg):
@@ -110,7 +111,7 @@ class AlertasCadastroView(ft.Column):
                     str(c.get("indice") or ""),
                     str(c.get("responsavel") or ""),
                     str(c.get("tipo_contrato") or ""),
-                    str(c.get("Observação") or ""),
+                    str(c.get("clausulas") or ""),
                     partes,
                 ]).lower()
                 return termo in texto
@@ -133,6 +134,7 @@ class AlertasCadastroView(ft.Column):
         for c in self.filtrados[:50]:
             sel = bool(self.selecionado and c["id"] == self.selecionado["id"])
             cli_nome = self.clientes_map.get(c.get("cliente_id"), "-")
+            identificador = c.get("indice") or "-"
 
             self.lista_contratos.controls.append(
                 ft.Container(
@@ -142,9 +144,28 @@ class AlertasCadastroView(ft.Column):
                     border=ft.border.all(1, ft.Colors.BLUE_300 if sel else ft.Colors.GREY_200),
                     content=ft.Row([
                         ft.Column([
-                            ft.Text(c.get("nome", ""), size=13),
+                            ft.Row([
+                                ft.Text(c.get("nome", ""), size=13, weight=ft.FontWeight.W_600),
+                                ft.Container(
+                                    padding=ft.padding.symmetric(horizontal=6, vertical=1),
+                                    border_radius=4,
+                                    bgcolor=ft.Colors.BLUE_100,
+                                    content=ft.Text(
+                                        f"Identificador: {identificador}",
+                                        size=10, color=ft.Colors.BLUE_900,
+                                    ),
+                                ),
+                            ], spacing=8),
                             ft.Text(cli_nome, size=11, color=ft.Colors.GREY_600),
-                        ], expand=True),
+                        ], expand=True, spacing=2),
+
+                        ft.TextButton(
+                            "Detalhes",
+                            icon=ft.Icons.INFO_OUTLINE,
+                            on_click=lambda e, cc=c: self.app_page.run_task(
+                                ver_contrato_dialog, self.app_page, cc, self.clientes_map
+                            ),
+                        ),
 
                         ft.FilledTonalButton(
                             "Ver / + Prazo",
@@ -168,7 +189,17 @@ class AlertasCadastroView(ft.Column):
         # =============================
         # CAMPOS
         # =============================
-        tf_inicio = ft.TextField(label="Data Início", read_only=True, width=150)
+        def cal(e):
+            def _on_pick(d):
+                tf_inicio.value = d.strftime("%d/%m/%Y")
+                _recalcular_data()
+            calendario_ptbr(self.app_page, on_select=_on_pick)
+
+        tf_inicio = ft.TextField(
+            label="Data Início", read_only=True, width=150,
+            prefix_icon=ft.Icons.CALENDAR_TODAY,
+            on_click=cal,
+        )
         tf_meses = ft.TextField(
             label="Meses", width=90,
             input_filter=ft.NumbersOnlyInputFilter(),
@@ -243,12 +274,6 @@ class AlertasCadastroView(ft.Column):
                         )
                     )
 
-        def cal(e):
-            def _on_pick(d):
-                tf_inicio.value = d.strftime("%d/%m/%Y")
-                _recalcular_data()
-            calendario_ptbr(self.app_page, on_select=_on_pick)
-
         # =============================
         # SALVAR PRAZO
         # =============================
@@ -310,7 +335,6 @@ class AlertasCadastroView(ft.Column):
                     size=11, color=ft.Colors.GREY_500, italic=True),
 
             ft.Row([
-                ft.OutlinedButton("Data Início", icon=ft.Icons.CALENDAR_TODAY, on_click=cal),
                 tf_inicio,
                 tf_meses,
                 tf_dt,
@@ -324,7 +348,29 @@ class AlertasCadastroView(ft.Column):
         ], visible=pode_cadastrar)
 
         self.painel_prazo.content = ft.Column([
-            ft.Text(f"{contrato['nome']} — Prazos"),
+            ft.Row(
+                [
+                    ft.Text(f"{contrato['nome']} — Prazos", weight=ft.FontWeight.W_600),
+                    ft.Container(
+                        padding=ft.padding.symmetric(horizontal=6, vertical=1),
+                        border_radius=4,
+                        bgcolor=ft.Colors.BLUE_100,
+                        content=ft.Text(
+                            f"Identificador: {contrato.get('indice') or '-'}",
+                            size=11, color=ft.Colors.BLUE_900,
+                        ),
+                    ),
+                    ft.Container(expand=True),
+                    ft.TextButton(
+                        "Verificar informações do contrato",
+                        icon=ft.Icons.INFO_OUTLINE,
+                        on_click=lambda e: self.app_page.run_task(
+                            ver_contrato_dialog, self.app_page, contrato, self.clientes_map
+                        ),
+                    ),
+                ],
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
 
             prazos_col,
 
