@@ -50,6 +50,7 @@ from database.models import (
     get_vinculos,
     get_contrato_partes,
     add_contrato_parte,
+    update_contrato_parte,
     delete_contrato_parte,
     # Storage privado "Heringer":
     list_anexos_storage,
@@ -62,6 +63,7 @@ from database.models import (
 
 from utils.calendario_ptbr import calendario_ptbr
 from utils.dataptbr import data_br_para_db, data_db_para_br, somar_meses
+from utils.log_acao import log_acao
 
 
 DB_FMT     = "%Y-%m-%d"
@@ -864,10 +866,13 @@ async def novo_contrato_dialog(page: ft.Page, atualizar_lista):
                     erros = [r for r in resultados if isinstance(r, Exception)]
                     if erros:
                         _snack(page, f"Contrato criado, mas {len(erros)} item(ns) falharam ao salvar.")
+                        log_acao(page, f"Contrato '{nome}' criado com falhas parciais",
+                                 f"{len(erros)} item(ns) (parte/anexo) falharam ao salvar")
 
             _fechar_dialog(page, dialog)
             atualizar_lista()
             _snack(page, f"Contrato {nome} criado.")
+            log_acao(page, f"Contrato criado: '{nome}'", f"cliente_id={cli['id']}")
 
         finally:
             btn_salvar.disabled = False
@@ -946,6 +951,14 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
     # da montagem da tela. Agora todas rodam juntas, no início, com
     # asyncio.gather — o restante da função só monta a UI com os
     # dados que já chegaram.
+    #
+    # NOTA: get_partes/get_vinculos/etc. (database/models.py) engolem
+    # sua própria exceção internamente e devolvem [] em caso de falha
+    # — por isso um retry aqui em cima do run_db não teria efeito (a
+    # exceção nunca chega a escapar pra fora da função pra ser
+    # re-tentada). A causa raiz de falha de conexão sob concorrência
+    # foi corrigida na origem, em database/supabase_client.py
+    # (HTTP/2 desativado — ver comentário lá para detalhes).
     (
         partes_bd, vinculos_bd, tipos_contrato,
         cp_existentes, prazos, anexos_existentes, tipos_prazos,
@@ -1211,6 +1224,13 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
                     continue
                 if cp_id is None:
                     tarefas.append(_run_db_com_retry(page, add_contrato_parte, contrato["id"], int(p_val), t_val, tenant_id))
+                else:
+                    # FIX: antes, uma parte JÁ vinculada que só teve o
+                    # tipo (ou a própria parte) trocado no dropdown
+                    # nunca era salva — só existiam os caminhos de
+                    # CRIAR (cp_id vazio) ou EXCLUIR. Agora toda linha
+                    # existente é atualizada também.
+                    tarefas.append(_run_db_com_retry(page, update_contrato_parte, cp_id, int(p_val), t_val))
 
             for caminho in secao_anexos["excluir"]:
                 tarefas.append(_run_db_com_retry(page, delete_anexo_storage, caminho))
@@ -1234,6 +1254,7 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
         _fechar_dialog(page, dialog)
         on_save()
         _snack(page, "Contrato atualizado.")
+        log_acao(page, f"Contrato editado: '{contrato.get('nome')}'", f"contrato_id={contrato['id']}")
 
     btn_salvar = ft.FilledButton("Salvar", on_click=salvar)
 

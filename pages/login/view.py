@@ -122,6 +122,12 @@ def login_view(page: ft.Page, navegar):
                 layout.set_tenant(tenant_nome)
 
             # =========================
+            # LOG
+            # =========================
+            from utils.log_acao import log_acao
+            log_acao(page, "Login realizado", f"usuario={usuario}")
+
+            # =========================
             # SNACKBAR
             # =========================
             page.snack_bar = ft.SnackBar(

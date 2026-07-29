@@ -231,6 +231,9 @@ class AppLayout(ft.Column):
         # manualmente. Agora recriamos um client novo e limpo aqui,
         # pronto pro próximo login.
         from database.supabase_client import new_session_client
+        from utils.log_acao import log_acao
+
+        log_acao(self.app_page, "Logout realizado")
 
         self.app_page.local_store.clear()
         self.app_page.local_store["supabase_client"] = new_session_client()

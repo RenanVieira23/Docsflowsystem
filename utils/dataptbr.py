@@ -24,8 +24,7 @@ def data_br_para_db(data):
 
 def somar_meses(data_iso: str, meses) -> str | None:
     """
-    Soma 'meses' a uma data no formato ISO (YYYY-MM-DD) e retorna
-    também em ISO. Usado no cálculo automático do prazo:
+    Soma 'meses' a uma data no formato ISO (YYYY-MM-DD)  Usado no cálculo automático do prazo:
     Data = Data Início + Meses.
     """
     if not data_iso or meses in (None, ""):

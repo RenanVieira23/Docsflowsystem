@@ -482,11 +482,14 @@ def delete_tipo_notificacao(tipo_id: int):
 # FIX RLS: tenant_id agora obrigatório no insert
 # ======================================================
 
-def registrar_log(usuario_id, acao, detalhes=None, tenant_id=None):
+def registrar_log(usuario_id, acao, detalhes=None, tenant_id=None, nivel="acao"):
     """
     tenant_id é obrigatório para passar na política RLS de INSERT.
     Se não for fornecido, o log é silenciosamente ignorado para não
     quebrar o fluxo principal da aplicação.
+
+    nivel: "acao" (padrão, ação normal do usuário), "erro" (falha em
+    alguma operação) ou "sistema" (desconexão, crash de sessão).
     """
     try:
         if not tenant_id:
@@ -498,10 +501,60 @@ def registrar_log(usuario_id, acao, detalhes=None, tenant_id=None):
             "detalhes": detalhes,
             "data_hora": _now(),
             "tenant_id": tenant_id,  # ← obrigatório para RLS
+            "nivel": nivel,
         }
-        supabase.table("logs").insert(novo).execute()
+        try:
+            supabase.table("logs").insert(novo).execute()
+        except Exception as e:
+            # FIX: se o SQL de migração (sql/2026-07_logs_nivel.sql)
+            # ainda não foi rodado no Supabase, a coluna "nivel" não
+            # existe e o insert falha com PGRST204 — isso derrubaria
+            # TODO log do sistema até a migração ser aplicada. Em vez
+            # de falhar, tenta de novo sem a coluna nova, registrando
+            # ao menos a ação (sem a classificação de nível).
+            if "PGRST204" in str(e) or "nivel" in str(e):
+                print("⚠️ Coluna 'nivel' ainda não existe em 'logs' — "
+                      "rode sql/2026-07_logs_nivel.sql. Gravando sem nivel por enquanto.")
+                novo.pop("nivel", None)
+                supabase.table("logs").insert(novo).execute()
+            else:
+                raise
     except Exception as e:
         print(f"❌ Erro ao registrar log: {e}")
+
+
+def registrar_log_erro(tenant_id, usuario_id, contexto: str, erro: str):
+    """
+    Registra um erro/evento de sistema (nivel="erro") usando o client
+    de SERVIÇO diretamente (supabase_admin), não o client de sessão do
+    usuário. Isso é proposital: se o problema que estamos logando for
+    justamente a sessão/conexão do usuário falhando, um insert que
+    dependa dessa mesma sessão poderia falhar junto — o log de erro
+    não pode depender da própria coisa que pode estar quebrada.
+
+    Nunca lança exceção — logging não pode derrubar o fluxo principal.
+    """
+    try:
+        client = supabase_admin or supabase
+        payload = {
+            "usuario_id": usuario_id,
+            "acao": contexto,
+            "detalhes": (erro or "")[:2000],  # evita estourar o tamanho da coluna
+            "data_hora": _now(),
+            "tenant_id": tenant_id,
+            "nivel": "erro",
+        }
+        try:
+            client.table("logs").insert(payload).execute()
+        except Exception as e:
+            if "PGRST204" in str(e) or "nivel" in str(e):
+                payload.pop("nivel", None)
+                client.table("logs").insert(payload).execute()
+            else:
+                raise
+    except Exception as e:
+        # Se nem isso funcionar, ao menos garante que sobra no console.
+        print(f"❌ Erro ao registrar log de erro (contexto={contexto}): {e}")
 
 
 # ======================================================
@@ -898,6 +951,28 @@ def delete_contrato_parte(cp_id: int):
     except Exception as e:
         print(f"❌ Erro ao remover parte do contrato: {e}")
         return False
+
+
+def update_contrato_parte(cp_id: int, parte_id: int, tipo_vinculo: str):
+    """
+    Atualiza a parte e/ou o tipo de vínculo de uma linha JÁ EXISTENTE
+    em contrato_partes. Antes desta função, o formulário de edição de
+    contrato só sabia CRIAR vínculo novo (cp_id vazio) ou EXCLUIR — se
+    o usuário só trocasse o tipo de uma parte já vinculada (sem
+    remover/readicionar), nada era salvo, porque não existia nenhuma
+    chamada de update para esse caso.
+    """
+    try:
+        resp = (
+            supabase.table("contrato_partes")
+            .update({"parte_id": parte_id, "tipo_vinculo": tipo_vinculo})
+            .eq("id", cp_id)
+            .execute()
+        )
+        return resp.data[0] if resp.data else None
+    except Exception as e:
+        print(f"❌ Erro ao atualizar parte do contrato: {e}")
+        return None
 
 
 # ======================================================
