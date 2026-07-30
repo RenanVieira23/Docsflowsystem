@@ -24,6 +24,7 @@ from database.models import (
     MODULOS_PERMISSAO,
 )
 from database.supabase_client import run_db
+from utils.log_acao import log_acao
 
 
 NOMES_MODULO = {
@@ -160,6 +161,11 @@ class CargosView(ft.Column):
                     return
 
                 _snack(self.app_page, f"'{NOMES_MODULO[m]}' atualizado para '{cargo.get('nome')}'.")
+                log_acao(
+                    self.app_page,
+                    f"Permissão alterada no cargo '{cargo.get('nome')}'",
+                    f"módulo={m} ler={ler.value} cadastrar={cad.value} editar={edt.value}",
+                )
 
             for cb in (cb_ler, cb_cad, cb_edt):
                 cb.on_change = _salvar_permissao
@@ -193,8 +199,10 @@ class CargosView(ft.Column):
                 tf_nome.value = cargo.get("nome", "")
                 self.app_page.update()
                 return
+            nome_anterior = cargo.get("nome")
             cargo["nome"] = novo
             _snack(self.app_page, "Cargo renomeado.")
+            log_acao(self.app_page, f"Cargo renomeado: '{nome_anterior}' → '{novo}'")
 
         tf_nome.on_blur = _salvar_nome
 
@@ -208,6 +216,7 @@ class CargosView(ft.Column):
                 _snack(self.app_page, resultado["_error"])
                 return
             _snack(self.app_page, f"Cargo '{cargo.get('nome')}' excluído.")
+            log_acao(self.app_page, f"Cargo excluído: '{cargo.get('nome')}'")
             self.app_page.run_task(self._carregar)
 
         def _confirmar_exclusao(e):
@@ -289,6 +298,7 @@ class CargosView(ft.Column):
 
         self.tf_novo_cargo.value = ""
         _snack(self.app_page, f"Cargo '{nome}' criado. Agora defina as permissões dele abaixo.")
+        log_acao(self.app_page, f"Cargo criado: '{nome}'")
         await self._carregar()
 
 

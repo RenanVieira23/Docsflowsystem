@@ -1,6 +1,7 @@
 import flet as ft
 from database.models import add_parte, update_parte
 from database.supabase_client import run_db
+from utils.log_acao import log_acao
 
 
 # ======================================================
@@ -69,6 +70,7 @@ def nova_parte_dialog(page: ft.Page, on_save):
         dialog.open = False
         on_save()
         _snack(page, f"Parte '{tf_nome.value}' cadastrada com sucesso.")
+        log_acao(page, f"Parte cadastrada: '{tf_nome.value}'")
         page.update()
 
 
@@ -140,6 +142,7 @@ def editar_parte_dialog(page: ft.Page, parte: dict, on_save):
         dialog.open = False
         on_save()
         _snack(page, "Parte atualizada com sucesso.")
+        log_acao(page, f"Parte editada: '{tf_nome.value}'", f"parte_id={parte['id']}")
         page.update()
 
 

@@ -9,6 +9,7 @@ from database.models import (
 )
 from database.supabase_client import run_db
 from pages.admin.form import criar_usuario_dialog, editar_usuario_dialog
+from utils.log_acao import log_acao
 
 
 # ======================================================
@@ -289,6 +290,8 @@ class AdminView(ft.Column):
             "Erro ao excluir usuário."
         )
         self._snack(msg)
+        if ok:
+            log_acao(self.app_page, f"Usuário excluído: '{usuario['usuario']}'", f"usuario_id={usuario['id']}")
         self.recarregar()
 
     def _fechar(self, dialog):

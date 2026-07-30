@@ -3,6 +3,7 @@ import flet as ft
 from utils.sigla import gerar_sigla
 from database.models import add_cliente, update_cliente
 from database.supabase_client import run_db
+from utils.log_acao import log_acao
 
 
 # ======================================================
@@ -69,6 +70,7 @@ def novo_cliente_dialog(page: ft.Page, atualizar_tabela):
         atualizar_tabela()
 
         _snack(page, f"Cliente '{tf_nome.value}' cadastrado com sucesso.")
+        log_acao(page, f"Cliente cadastrado: '{tf_nome.value}'")
 
         page.update()
 
@@ -172,6 +174,7 @@ def editar_cliente_dialog(
         on_save()
 
         _snack(page, "Cliente atualizado com sucesso.")
+        log_acao(page, f"Cliente editado: '{tf_nome.value}'", f"cliente_id={cliente.get('id')}")
 
         page.update()
 

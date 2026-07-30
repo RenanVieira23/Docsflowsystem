@@ -1,6 +1,7 @@
 import flet as ft
 from database.models import criar_usuario_admin, update_usuario_admin, get_cargos
 from database.supabase_client import run_db
+from utils.log_acao import log_acao
 
 
 # ======================================================
@@ -181,6 +182,7 @@ def criar_usuario_dialog(page: ft.Page, tenant_id: str, on_save):
         dialog.open = False
         on_save()
         _snack(page, f"Usuário '{nome}' criado com sucesso.")
+        log_acao(page, f"Usuário criado: '{nome}'", f"email={email} cargo_id={dd_cargo.value}")
         page.update()
 
     btn_salvar.on_click = salvar
@@ -314,6 +316,7 @@ def editar_usuario_dialog(page: ft.Page, usuario: dict, on_save):
         dialog.open = False
         on_save()
         _snack(page, f"Usuário '{nome}' atualizado.")
+        log_acao(page, f"Usuário editado: '{nome}'", f"usuario_id={usuario['id']} cargo_id={dd_cargo.value}")
         page.update()
 
     dialog = ft.AlertDialog(
