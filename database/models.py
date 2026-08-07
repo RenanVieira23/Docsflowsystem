@@ -2,6 +2,8 @@
 import os
 import re
 import json
+import threading
+import time as _time
 import requests
 from datetime import datetime, timedelta
 from functools import lru_cache
@@ -144,18 +146,128 @@ def _clear_cache():
 
 
 # ======================================================
+# 🛡️ RATE LIMITING — proteção contra força bruta
+# ======================================================
+# LIMITAÇÃO CONHECIDA: este controle vive em memória do processo
+# Python. Funciona bem com uma única instância/dyno (ex: 1 serviço no
+# Render). Se o sistema crescer para múltiplas instâncias rodando em
+# paralelo (load balancer com 2+ processos), este controle PRECISA
+# migrar para uma tabela no banco (ex: "tentativas_login") ou um
+# cache compartilhado (Redis) — cada processo tem sua própria memória
+# e não veria as tentativas feitas nos outros processos.
+
+_MAX_TENTATIVAS_LOGIN = 5
+_JANELA_BLOQUEIO_LOGIN_SEG = 15 * 60  # 15 minutos
+
+_MAX_SOLICITACOES_RESET = 3
+_JANELA_BLOQUEIO_RESET_SEG = 60 * 60  # 1 hora
+
+_tentativas: dict[str, list[float]] = {}
+_lock_tentativas = threading.Lock()
+
+
+def _registrar_tentativa(chave: str, janela_seg: int):
+    """Registra uma nova tentativa (login falho ou solicitação de reset)."""
+    agora = _time.time()
+    with _lock_tentativas:
+        historico = _tentativas.setdefault(chave, [])
+        historico.append(agora)
+        _tentativas[chave] = [t for t in historico if agora - t < janela_seg]
+
+
+def _limpar_tentativas(chave: str):
+    """Zera o histórico — chamado após um login bem-sucedido."""
+    with _lock_tentativas:
+        _tentativas.pop(chave, None)
+
+
+def _esta_bloqueado(chave: str, limite: int, janela_seg: int) -> tuple[bool, int]:
+    """Retorna (bloqueado, segundos_restantes_até_liberar)."""
+    agora = _time.time()
+    with _lock_tentativas:
+        historico = [t for t in _tentativas.get(chave, []) if agora - t < janela_seg]
+        _tentativas[chave] = historico
+        if len(historico) >= limite:
+            mais_antiga = min(historico)
+            restante = int(janela_seg - (agora - mais_antiga))
+            return True, max(restante, 1)
+        return False, 0
+
+
+# ======================================================
+# 🔑 SESSÕES TEMPORÁRIAS DE RECUPERAÇÃO DE SENHA
+# ======================================================
+# O código de verificação do Supabase (OTP) é de USO ÚNICO — uma vez
+# validado com verify_otp(), ele não pode ser usado de novo, mesmo
+# que a operação seguinte (trocar a senha) falhe por outro motivo
+# (ex: "a nova senha deve ser diferente da atual"). Sem este cache,
+# esse cenário obrigava o usuário a pedir um e-mail novo toda vez
+# que errasse a escolha da nova senha — péssima experiência.
+#
+# Aqui guardamos a sessão de recuperação (access_token) já validada,
+# por um tempo curto, para que uma NOVA tentativa de troca de senha
+# (mesma sessão de recuperação) não precise validar o código de novo.
+#
+# MESMA LIMITAÇÃO do rate limiting acima: vive em memória do processo,
+# válido para uma única instância. Ver observação em _tentativas.
+
+_JANELA_SESSAO_RECUPERACAO_SEG = 10 * 60  # 10 minutos
+
+_sessoes_recuperacao: dict[str, dict] = {}
+_lock_sessoes_recuperacao = threading.Lock()
+
+
+def _salvar_sessao_recuperacao(email: str, access_token: str, refresh_token: str | None):
+    with _lock_sessoes_recuperacao:
+        _sessoes_recuperacao[email] = {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "expira_em": _time.time() + _JANELA_SESSAO_RECUPERACAO_SEG,
+        }
+
+
+def _obter_sessao_recuperacao(email: str) -> dict | None:
+    with _lock_sessoes_recuperacao:
+        sessao = _sessoes_recuperacao.get(email)
+        if not sessao:
+            return None
+        if _time.time() > sessao["expira_em"]:
+            _sessoes_recuperacao.pop(email, None)
+            return None
+        return sessao
+
+
+def _limpar_sessao_recuperacao(email: str):
+    with _lock_sessoes_recuperacao:
+        _sessoes_recuperacao.pop(email, None)
+
+
+# ======================================================
 # AUTH + PERFIL
 # ======================================================
 
 def autenticar_usuario(email: str, senha: str):
+    email_norm = (email or "").strip().lower()
+    chave = f"login:{email_norm}"
+
+    bloqueado, restante = _esta_bloqueado(chave, _MAX_TENTATIVAS_LOGIN, _JANELA_BLOQUEIO_LOGIN_SEG)
+    if bloqueado:
+        minutos = max(1, restante // 60)
+        print(f"🚫 Login bloqueado por excesso de tentativas: {email_norm}")
+        return {"_error": f"Muitas tentativas incorretas. Tente novamente em {minutos} minuto(s)."}
+
     try:
         res = supabase.auth.sign_in_with_password({
-            "email": (email or "").strip(),
+            "email": email_norm,
             "password": (senha or "").strip(),
         })
 
         if not res or not getattr(res, "session", None) or not getattr(res, "user", None):
+            _registrar_tentativa(chave, _JANELA_BLOQUEIO_LOGIN_SEG)
             return None
+
+        # login válido — limpa o histórico de tentativas falhas deste e-mail
+        _limpar_tentativas(chave)
 
         auth_uid = str(res.user.id)
         token = res.session.access_token
@@ -212,8 +324,186 @@ def autenticar_usuario(email: str, senha: str):
         return perfil
 
     except Exception as e:
+        _registrar_tentativa(chave, _JANELA_BLOQUEIO_LOGIN_SEG)
         print(f"❌ Erro ao autenticar/buscar perfil: {e}")
         return None
+
+
+# ======================================================
+# 🔑 RECUPERAÇÃO DE SENHA
+# ======================================================
+# Fluxo em 2 etapas com CÓDIGO NUMÉRICO (não link por e-mail):
+# o Flet roda como uma conexão de WebSocket server-side, então um
+# link de redefinição com token no fragmento da URL (#access_token=...)
+# nunca chegaria ao servidor. Por isso usamos o código de verificação
+# de 6 dígitos que o Supabase também envia (variável {{ .Token }} no
+# template de e-mail) — o usuário digita o código direto na tela do
+# app, sem precisar clicar em nenhum link.
+#
+# ⚠️ AÇÃO NECESSÁRIA NO PAINEL SUPABASE:
+# 1) Authentication → Email Templates → "Reset Password" precisa
+#    incluir {{ .Token }} no corpo do e-mail (o template padrão só
+#    traz {{ .ConfirmationURL }}, que não serve para este fluxo).
+# 2) Authentication → Sign In / Providers → Email → campo
+#    "Email OTP Expiration" controla por quantos segundos o código
+#    vale — ajuste para 300–600 (5–10 minutos) se quiser um código
+#    de vida mais curta. Isso é uma configuração do projeto Supabase,
+#    não pode ser controlada por este código Python.
+
+def solicitar_redefinicao_senha(email: str) -> dict:
+    """
+    Dispara o e-mail com o código de redefinição de senha.
+
+    SEGURANÇA: sempre retorna {"ok": True}, mesmo se o e-mail não
+    existir na base — isso evita que esta tela seja usada para
+    descobrir quais e-mails estão cadastrados no sistema (enumeração
+    de usuários). O rate limit abaixo evita uso abusivo (spam de
+    e-mails) sem revelar nenhuma informação sobre a existência do
+    e-mail.
+    """
+    email_norm = (email or "").strip().lower()
+    if not email_norm:
+        return {"_error": "Informe um e-mail."}
+
+    chave = f"reset:{email_norm}"
+    bloqueado, restante = _esta_bloqueado(chave, _MAX_SOLICITACOES_RESET, _JANELA_BLOQUEIO_RESET_SEG)
+    if bloqueado:
+        minutos = max(1, restante // 60)
+        return {"_error": f"Muitas solicitações. Tente novamente em {minutos} minuto(s)."}
+
+    _registrar_tentativa(chave, _JANELA_BLOQUEIO_RESET_SEG)
+
+    # Um novo código foi solicitado — qualquer sessão de recuperação
+    # anterior (de uma tentativa anterior) deixa de fazer sentido.
+    _limpar_sessao_recuperacao(email_norm)
+
+    try:
+        supabase.auth.reset_password_email(email_norm)
+    except Exception as e:
+        # Não repassa o erro real ao usuário (poderia vazar se o
+        # e-mail existe ou não) — apenas loga no servidor.
+        print(f"❌ Erro ao solicitar redefinição de senha ({email_norm}): {e}")
+
+    return {"ok": True}
+
+
+def confirmar_redefinicao_senha(email: str, codigo: str, nova_senha: str) -> dict:
+    """
+    Segunda etapa: valida o código de 6 dígitos recebido por e-mail e,
+    se correto, já troca a senha do usuário para `nova_senha`.
+
+    FIX (reuso de código): o código do Supabase é de uso único. Se o
+    usuário digitar o código certo mas a troca de senha falhar por
+    outro motivo (ex: "a nova senha deve ser diferente da atual"), a
+    sessão de recuperação já validada é reaproveitada nas próximas
+    tentativas por até 10 minutos — o usuário NÃO precisa pedir um
+    código novo, só corrige a senha e tenta de novo.
+    """
+    email_norm = (email or "").strip().lower()
+    codigo = (codigo or "").strip()
+    nova_senha = (nova_senha or "").strip()
+
+    if not email_norm or not nova_senha:
+        return {"_error": "Preencha todos os campos."}
+    if len(nova_senha) < 6:
+        return {"_error": "A nova senha deve ter ao menos 6 caracteres."}
+
+    sessao_cache = _obter_sessao_recuperacao(email_norm)
+
+    try:
+        if sessao_cache:
+            # Código já validado antes nesta janela — reaplica a
+            # sessão de recuperação existente em vez de validar de
+            # novo (o código já foi consumido na primeira vez).
+            token = sessao_cache["access_token"]
+        else:
+            if not codigo:
+                return {"_error": "Informe o código recebido por e-mail."}
+
+            res = supabase.auth.verify_otp({
+                "email": email_norm,
+                "token": codigo,
+                "type": "recovery",
+            })
+
+            if not res or not getattr(res, "session", None):
+                return {"_error": "Código inválido ou expirado. Solicite um novo código."}
+
+            token = res.session.access_token
+            _salvar_sessao_recuperacao(
+                email_norm, token, getattr(res.session, "refresh_token", None)
+            )
+
+        _apply_access_token(token)
+        supabase.auth.update_user({"password": nova_senha})
+
+        # sucesso — libera o cache e encerra a sessão de recuperação
+        _limpar_sessao_recuperacao(email_norm)
+        try:
+            supabase.auth.sign_out()
+        except Exception:
+            pass
+
+        return {"ok": True}
+
+    except Exception as e:
+        msg = str(e)
+        msg_lower = msg.lower()
+        print(f"❌ Erro ao confirmar redefinição de senha ({email_norm}): {e}")
+
+        if "different from the old password" in msg_lower or "should be different" in msg_lower:
+            # A sessão de recuperação continua válida no cache — o
+            # usuário só precisa escolher outra senha, sem pedir novo
+            # código.
+            return {
+                "_error": (
+                    "A nova senha deve ser diferente da senha atual. "
+                    "Escolha outra senha e clique em Redefinir novamente "
+                    "— não é necessário pedir um novo código."
+                )
+            }
+
+        if "expired" in msg_lower or "invalid" in msg_lower or "token" in msg_lower:
+            # Erro de token de verdade (expirado/inválido) — aqui sim
+            # descartamos o cache, pois a sessão não é mais utilizável.
+            _limpar_sessao_recuperacao(email_norm)
+            return {"_error": "Código inválido ou expirado. Solicite um novo código."}
+
+        return {"_error": "Não foi possível redefinir a senha. Tente novamente."}
+
+# ======================================================
+# 📜 TERMOS DE USO / POLÍTICA DE PRIVACIDADE (LGPD)
+# ======================================================
+
+def registrar_aceite_termos(usuario_id: int, versao: str) -> dict:
+    """
+    Registra que o usuário aceitou a versão vigente dos Termos de Uso
+    e da Política de Privacidade — grava data/hora e a versão aceita
+    (ver utils/termos.py -> VERSAO_TERMOS_ATUAL). Chamado no login,
+    logo após o usuário confirmar o aceite na tela obrigatória (ver
+    pages/login/view.py).
+
+    Usa supabase_admin (service role): este é um registro de sistema
+    sobre o próprio cadastro do usuário — não deve depender de uma
+    política de RLS de UPDATE em 'usuarios' para o próprio usuário
+    (que hoje não existe; apenas o client administrativo edita essa
+    tabela, ver update_usuario_admin).
+    """
+    try:
+        client = supabase_admin or supabase
+        resp = (
+            client.table("usuarios")
+            .update({
+                "termos_aceitos_em": _now(),
+                "termos_versao": versao,
+            })
+            .eq("id", usuario_id)
+            .execute()
+        )
+        return resp.data[0] if resp.data else {"_error": "Usuário não encontrado."}
+    except Exception as e:
+        print(f"❌ Erro ao registrar aceite dos termos: {e}")
+        return {"_error": str(e)}
 
 
 def get_perfil_por_auth_uid(auth_uid: str):

@@ -1,5 +1,6 @@
 import os
 import threading
+import time
 import httpx
 from supabase import create_client, Client, ClientOptions
 from dotenv import load_dotenv
@@ -130,6 +131,141 @@ supabase_admin = (
 )
 
 
+# ==========================================================
+# RENOVAÇÃO AUTOMÁTICA DE SESSÃO (refresh token)
+# ==========================================================
+# O access_token do Supabase Auth expira por padrão em ~1h. Antes
+# desta correção, nada renovava esse token — uma sessão longa (ex:
+# usuário preenchendo um contrato por mais de 1h) começava a falhar
+# silenciosamente com erro de RLS assim que o token vencia, sem
+# nenhuma mensagem clara pro usuário.
+#
+# A cada chamada de run_db(), ANTES de executar a operação, checamos
+# se o token está perto de expirar (margem de 2 minutos) e, se
+# estiver, renovamos automaticamente usando o refresh_token guardado
+# em page.local_store (ver pages/login/view.py — precisa gravar
+# session_access_token / session_refresh_token / session_expires_at
+# logo após autenticar_usuario()). Isso é transparente: nenhuma tela
+# precisa saber que a renovação aconteceu.
+#
+# Se a renovação falhar de verdade (refresh_token também expirado ou
+# revogado — ex: sessão muito antiga, ou logout em outro dispositivo),
+# a sessão é encerrada e o usuário é redirecionado ao login com uma
+# mensagem clara, em vez de continuar recebendo erros confusos.
+# ==========================================================
+
+class SessaoExpiradaError(Exception):
+    """Levantada quando a sessão do usuário não pôde ser renovada
+    (refresh_token também expirado/inválido) — um novo login é
+    necessário."""
+    pass
+
+
+_MARGEM_REFRESH_SEG = 120  # renova o token 2 minutos antes de vencer
+
+
+def _aplicar_token_no_client(client: Client, token: str):
+    """
+    Aplica um novo access_token diretamente no client de UMA sessão
+    específica (diferente de _apply_access_token em database/models.py,
+    que aplica no proxy global `supabase`, resolvido por thread-local).
+    Usado logo após renovar o token via refresh_session().
+    """
+    try:
+        client.postgrest.auth(token)
+    except Exception as e:
+        print(f"⚠️ Erro ao aplicar token renovado no postgrest: {e}")
+
+    try:
+        if hasattr(client, "storage") and hasattr(client.storage, "_client"):
+            client.storage._client.headers.update({"Authorization": f"Bearer {token}"})
+    except Exception as e:
+        print(f"⚠️ Erro ao aplicar token renovado no storage: {e}")
+
+
+async def _garantir_sessao_valida(page, client: Client) -> bool:
+    """
+    Verifica se o access_token da sessão está perto de expirar e, se
+    estiver, renova automaticamente usando o refresh_token guardado
+    em page.local_store.
+
+    Retorna True se a sessão está (ou ficou, após renovar) válida.
+    Retorna False apenas quando a renovação falhou de verdade — nesse
+    caso, quem chamou deve forçar um novo login.
+    """
+    import asyncio
+
+    if not hasattr(page, "local_store") or page.local_store is None:
+        return True  # sem estado de sessão de usuário (ex: fluxo de login)
+
+    expires_at = page.local_store.get("session_expires_at")
+    refresh_token = page.local_store.get("session_refresh_token")
+
+    if not expires_at or not refresh_token:
+        # Sessão ainda não autenticada, ou logada antes desta versão
+        # (sem esses dados gravados) — nada a renovar por aqui.
+        return True
+
+    try:
+        if time.time() < (float(expires_at) - _MARGEM_REFRESH_SEG):
+            return True  # token ainda válido por tempo suficiente
+    except (TypeError, ValueError):
+        return True  # valor inesperado — não bloqueia a operação por isso
+
+    try:
+        resultado = await asyncio.to_thread(client.auth.refresh_session, refresh_token)
+    except Exception as ex:
+        print(f"⚠️ Falha ao renovar sessão (refresh_token pode estar expirado): {ex}")
+        return False
+
+    nova_session = getattr(resultado, "session", None)
+    novo_token = getattr(nova_session, "access_token", None) if nova_session else None
+
+    if not novo_token:
+        print("⚠️ Renovação de sessão não retornou um access_token válido.")
+        return False
+
+    _aplicar_token_no_client(client, novo_token)
+
+    page.local_store["session_access_token"] = novo_token
+    page.local_store["session_refresh_token"] = getattr(nova_session, "refresh_token", refresh_token)
+    page.local_store["session_expires_at"] = getattr(nova_session, "expires_at", None)
+
+    print("🔄 Sessão renovada automaticamente (token de acesso atualizado).")
+    return True
+
+
+def _finalizar_sessao_expirada(page):
+    """
+    Limpa os dados de sessão do usuário e força retorno à tela de
+    login quando o token não pôde ser renovado. Mantém um client novo
+    e limpo em local_store (mesmo padrão usado no logout manual, ver
+    app/layout.py -> _logout), para que a próxima tentativa de login
+    já tenha um client pronto.
+    """
+    if not hasattr(page, "local_store") or page.local_store is None:
+        return
+
+    tenant_id_anterior = page.local_store.get("tenant_id")
+    usuario_nome_anterior = page.local_store.get("usuario_nome")
+
+    try:
+        page.local_store.clear()
+        page.local_store["supabase_client"] = new_session_client()
+    except Exception as e:
+        print(f"⚠️ Erro ao limpar sessão expirada: {e}")
+
+    print(
+        f"⏳ Sessão expirada — usuário={usuario_nome_anterior or '?'} "
+        f"tenant={tenant_id_anterior or '?'} redirecionado ao login."
+    )
+
+    try:
+        page.go("/login")
+    except Exception as e:
+        print(f"⚠️ Erro ao redirecionar para /login após expiração: {e}")
+
+
 async def run_db(page, func, *args, **kwargs):
     """
     Use esta função em TODAS as páginas no lugar de
@@ -144,6 +280,12 @@ async def run_db(page, func, *args, **kwargs):
         # depois:
         clientes = await run_db(page, get_clientes, tenant_id)
 
+    RENOVAÇÃO DE SESSÃO: antes de executar a operação, verifica se o
+    token de acesso está perto de expirar e renova automaticamente se
+    necessário (ver _garantir_sessao_valida acima). Se a renovação
+    falhar (sessão expirada de verdade), levanta SessaoExpiradaError
+    e já redireciona o usuário para /login.
+
     LOGGING: qualquer exceção levantada por `func` é automaticamente
     registrada — no console (visível no painel de logs do Render,
     sempre) e na tabela `logs` (nivel="erro", best-effort) — antes de
@@ -155,7 +297,6 @@ async def run_db(page, func, *args, **kwargs):
     mensagem de erro etc.) como já fazia.
     """
     import asyncio  # import local para não exigir asyncio em quem só usa supabase/supabase_admin
-    import time
 
     client = None
     if hasattr(page, "local_store") and page.local_store is not None:
@@ -174,6 +315,15 @@ async def run_db(page, func, *args, **kwargs):
         client = new_session_client()
         if hasattr(page, "local_store") and page.local_store is not None:
             page.local_store["supabase_client"] = client
+
+    # Garante que o token ainda é válido — renova automaticamente se
+    # estiver perto de expirar. Se não conseguir renovar, encerra a
+    # sessão e força novo login em vez de deixar a operação seguir e
+    # falhar com um erro confuso de RLS.
+    sessao_ok = await _garantir_sessao_valida(page, client)
+    if not sessao_ok:
+        _finalizar_sessao_expirada(page)
+        raise SessaoExpiradaError("Sua sessão expirou. Faça login novamente.")
 
     nome_func = getattr(func, "__name__", str(func))
 

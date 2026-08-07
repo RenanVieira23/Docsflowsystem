@@ -1,6 +1,7 @@
 import flet as ft
 
 from utils.permissoes import pode, eh_administrador, algum_modulo_leitura
+from pages.termos.view import dialog_termos
 
 
 class AppLayout(ft.Column):
@@ -54,6 +55,14 @@ class AppLayout(ft.Column):
         # =========================
         # LAYOUT PRINCIPAL
         # =========================
+        # FIX (item de rodapé do menu não aparecia): sem
+        # vertical_alignment=STRETCH aqui, o Container do sidebar não
+        # tinha altura definida — o espaçador "Container(expand=True)"
+        # usado para empurrar o rodapé (Termos de Uso) para baixo
+        # ficava com altura indefinida, e qualquer item colocado DEPOIS
+        # dele na Column simplesmente não era renderizado. STRETCH faz
+        # o sidebar ocupar a altura inteira da tela, dando ao
+        # espaçador uma altura real para calcular.
         self.controls = [
             ft.Row(
                 [
@@ -67,6 +76,7 @@ class AppLayout(ft.Column):
                     ),
                 ],
                 expand=True,
+                vertical_alignment=ft.CrossAxisAlignment.STRETCH,
             )
         ]
 
@@ -159,6 +169,13 @@ class AppLayout(ft.Column):
             itens_menu.append(self.btn_admin)
             itens_menu.append(self.btn_cargos)
 
+        # FIX: esta Column agora tem expand=True e scroll ativado. O
+        # expand garante que o Container(expand=True) logo abaixo (o
+        # espaçador que empurra "Termos de Uso" para o rodapé) tenha
+        # uma altura real para calcular. O scroll é uma proteção extra:
+        # se o menu crescer (muitos módulos liberados) e não couber na
+        # tela, ele rola em vez de estourar o layout e esconder o
+        # rodapé de novo.
         return ft.Column(
             [
                 ft.Image(
@@ -183,8 +200,27 @@ class AppLayout(ft.Column):
                 *itens_menu,
 
                 ft.Container(expand=True),
+
+                # =========================
+                # TERMOS DE USO / PRIVACIDADE (LGPD)
+                # Disponível para qualquer usuário logado, sem
+                # depender de permissão de módulo — item informativo.
+                # =========================
+                ft.Divider(color=ft.Colors.BLUE_300),
+                ft.Container(
+                    padding=ft.padding.symmetric(vertical=6, horizontal=4),
+                    content=ft.Text(
+                        "Termos de Uso e Privacidade",
+                        color=ft.Colors.BLUE_100,
+                        size=11,
+                    ),
+                    ink=True,
+                    on_click=lambda e: dialog_termos(self.app_page, modo="leitura"),
+                ),
             ],
             spacing=6,
+            expand=True,
+            scroll=ft.ScrollMode.AUTO,
         )
 
     # =====================================================
