@@ -9,7 +9,14 @@ Permite:
     quaisquer cargos customizados criados pelo tenant.
   - Criar um cargo novo.
   - Renomear ou excluir cargos não-padrão.
-  - Marcar, por módulo, o que cada cargo pode: Ler / Cadastrar / Editar.
+  - Marcar, por módulo, o que cada cargo pode: Ler / Cadastrar /
+    Editar / Excluir.
+
+FIX (esta versão): adicionada a coluna "Excluir" — hoje usada
+principalmente pelo soft delete de Clientes (ver
+pages/clientes/view.py). Cargos existentes nascem SEM essa permissão
+(fail-closed) — é preciso marcá-la manualmente aqui para os cargos
+que devem poder excluir (normalmente só Administrador).
 """
 
 import flet as ft
@@ -24,6 +31,7 @@ from database.models import (
     MODULOS_PERMISSAO,
 )
 from database.supabase_client import run_db
+from utils.erros_ui import snack_erro, snack_sucesso, banner_erro_carregamento
 from utils.log_acao import log_acao
 
 
@@ -36,12 +44,6 @@ NOMES_MODULO = {
 }
 
 
-def _snack(page: ft.Page, msg: str):
-    page.snack_bar = ft.SnackBar(ft.Text(msg))
-    page.snack_bar.open = True
-    page.update()
-
-
 class CargosView(ft.Column):
 
     def __init__(self, page: ft.Page):
@@ -52,6 +54,7 @@ class CargosView(ft.Column):
 
         self.loading = ft.ProgressRing(width=20, height=20, stroke_width=2, visible=False)
         self.lista_cargos = ft.Column(spacing=12)
+        self.area_erro = ft.Container(visible=False)
 
         self.tf_novo_cargo = ft.TextField(
             label="Nome do novo cargo", width=260, dense=True,
@@ -82,6 +85,7 @@ class CargosView(ft.Column):
                     spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
             ),
+            self.area_erro,
             self.lista_cargos,
         ]
 
@@ -97,14 +101,18 @@ class CargosView(ft.Column):
 
         try:
             cargos = await run_db(self.app_page, get_cargos, self.tenant_id) or []
+            self.area_erro.visible = False
         except Exception as ex:
             print("❌ Erro ao carregar cargos:", ex)
             cargos = []
-            _snack(self.app_page, "Não foi possível carregar os cargos. Tente novamente.")
+            self.area_erro.visible = True
+            self.area_erro.content = banner_erro_carregamento(
+                "os cargos", on_retry=lambda e: self.app_page.run_task(self._carregar)
+            )
 
         self.lista_cargos.controls.clear()
 
-        if not cargos:
+        if not cargos and not self.area_erro.visible:
             self.lista_cargos.controls.append(
                 ft.Text("Nenhum cargo cadastrado ainda.", color=ft.Colors.GREY_500, italic=True)
             )
@@ -124,7 +132,7 @@ class CargosView(ft.Column):
         except Exception as ex:
             print(f"❌ Erro ao carregar permissões do cargo {cargo_id}:", ex)
             permissoes = {}
-            _snack(self.app_page, f"Erro ao carregar permissões de '{cargo.get('nome')}'.")
+            snack_erro(self.app_page, ex, contexto=f"carregar as permissões de '{cargo.get('nome')}'")
 
         tf_nome = ft.TextField(
             value=cargo.get("nome", ""), width=220, dense=True,
@@ -133,89 +141,93 @@ class CargosView(ft.Column):
 
         linhas_modulo = []
         for modulo in MODULOS_PERMISSAO:
-            perm = permissoes.get(modulo, {"pode_ler": False, "pode_cadastrar": False, "pode_editar": False})
+            perm = permissoes.get(modulo, {
+                "pode_ler": False, "pode_cadastrar": False,
+                "pode_editar": False, "pode_excluir": False,
+            })
 
             cb_ler = ft.Checkbox(value=perm["pode_ler"], label="Ler")
             cb_cad = ft.Checkbox(value=perm["pode_cadastrar"], label="Cadastrar")
             cb_edt = ft.Checkbox(value=perm["pode_editar"], label="Editar")
+            cb_exc = ft.Checkbox(value=perm.get("pode_excluir", False), label="Excluir")
 
-            async def _salvar_permissao(e, m=modulo, ler=cb_ler, cad=cb_cad, edt=cb_edt):
-                # cadastrar/editar sem ler não faz sentido — mesma regra
-                # aplicada no backend (set_permissao_cargo), refletida
-                # aqui visualmente também.
-                if (cad.value or edt.value) and not ler.value:
+            async def _salvar_permissao(e, m=modulo, ler=cb_ler, cad=cb_cad, edt=cb_edt, exc=cb_exc):
+                # cadastrar/editar/excluir sem ler não faz sentido —
+                # mesma regra aplicada no backend (set_permissao_cargo),
+                # refletida aqui visualmente também.
+                if (cad.value or edt.value or exc.value) and not ler.value:
                     ler.value = True
                     self.app_page.update()
 
                 try:
                     resultado = await run_db(
                         self.app_page, set_permissao_cargo,
-                        cargo_id, m, ler.value, cad.value, edt.value,
+                        cargo_id, m, ler.value, cad.value, edt.value, exc.value, self.tenant_id,
                     )
                 except Exception as ex:
-                    _snack(self.app_page, f"Erro de conexão ao salvar permissão: {ex}")
+                    snack_erro(self.app_page, ex, contexto="salvar a permissão")
                     return
 
                 if isinstance(resultado, dict) and resultado.get("_error"):
-                    _snack(self.app_page, f"Erro ao salvar permissão: {resultado['_error']}")
+                    snack_erro(self.app_page, Exception(resultado["_error"]), contexto="salvar a permissão")
                     return
 
-                _snack(self.app_page, f"'{NOMES_MODULO[m]}' atualizado para '{cargo.get('nome')}'.")
+                snack_sucesso(self.app_page, f"'{NOMES_MODULO[m]}' atualizado para '{cargo.get('nome')}'.")
                 log_acao(
                     self.app_page,
                     f"Permissão alterada no cargo '{cargo.get('nome')}'",
-                    f"módulo={m} ler={ler.value} cadastrar={cad.value} editar={edt.value}",
+                    f"módulo={m} ler={ler.value} cadastrar={cad.value} editar={edt.value} excluir={exc.value}",
                 )
 
-            for cb in (cb_ler, cb_cad, cb_edt):
+            for cb in (cb_ler, cb_cad, cb_edt, cb_exc):
                 cb.on_change = _salvar_permissao
 
             linhas_modulo.append(
                 ft.Row(
                     [
                         ft.Container(ft.Text(NOMES_MODULO[modulo], size=13, weight=ft.FontWeight.W_600), width=110),
-                        cb_ler, cb_cad, cb_edt,
+                        cb_ler, cb_cad, cb_edt, cb_exc,
                     ],
-                    spacing=4,
+                    spacing=4, wrap=True,
                 )
             )
 
         async def _salvar_nome(e):
             novo = (tf_nome.value or "").strip()
             if not novo:
-                _snack(self.app_page, "O nome do cargo não pode ficar vazio.")
+                snack_erro(self.app_page, Exception("nome vazio"), contexto="renomear o cargo")
                 tf_nome.value = cargo.get("nome", "")
                 self.app_page.update()
                 return
             if novo == cargo.get("nome"):
                 return
             try:
-                resultado = await run_db(self.app_page, update_cargo_nome, cargo_id, novo)
+                resultado = await run_db(self.app_page, update_cargo_nome, cargo_id, novo, self.tenant_id)
             except Exception as ex:
-                _snack(self.app_page, f"Erro de conexão ao renomear: {ex}")
+                snack_erro(self.app_page, ex, contexto="renomear o cargo")
                 return
             if isinstance(resultado, dict) and resultado.get("_error"):
-                _snack(self.app_page, resultado["_error"])
+                snack_erro(self.app_page, Exception(resultado["_error"]), contexto="renomear o cargo")
                 tf_nome.value = cargo.get("nome", "")
                 self.app_page.update()
                 return
             nome_anterior = cargo.get("nome")
             cargo["nome"] = novo
-            _snack(self.app_page, "Cargo renomeado.")
+            snack_sucesso(self.app_page, "Cargo renomeado.")
             log_acao(self.app_page, f"Cargo renomeado: '{nome_anterior}' → '{novo}'")
 
         tf_nome.on_blur = _salvar_nome
 
         async def _excluir(e):
             try:
-                resultado = await run_db(self.app_page, delete_cargo, cargo_id)
+                resultado = await run_db(self.app_page, delete_cargo, cargo_id, self.tenant_id)
             except Exception as ex:
-                _snack(self.app_page, f"Erro de conexão ao excluir: {ex}")
+                snack_erro(self.app_page, ex, contexto="excluir o cargo")
                 return
             if isinstance(resultado, dict) and resultado.get("_error"):
-                _snack(self.app_page, resultado["_error"])
+                snack_erro(self.app_page, Exception(resultado["_error"]), contexto="excluir o cargo")
                 return
-            _snack(self.app_page, f"Cargo '{cargo.get('nome')}' excluído.")
+            snack_sucesso(self.app_page, f"Cargo '{cargo.get('nome')}' excluído.")
             log_acao(self.app_page, f"Cargo excluído: '{cargo.get('nome')}'")
             self.app_page.run_task(self._carregar)
 
@@ -283,21 +295,21 @@ class CargosView(ft.Column):
     async def _criar_cargo(self):
         nome = (self.tf_novo_cargo.value or "").strip()
         if not nome:
-            _snack(self.app_page, "Digite um nome para o novo cargo.")
+            snack_erro(self.app_page, Exception("nome vazio"), contexto="criar o cargo")
             return
 
         try:
             resultado = await run_db(self.app_page, add_cargo, self.tenant_id, nome)
         except Exception as ex:
-            _snack(self.app_page, f"Erro de conexão ao criar cargo: {ex}")
+            snack_erro(self.app_page, ex, contexto="criar o cargo")
             return
 
         if isinstance(resultado, dict) and resultado.get("_error"):
-            _snack(self.app_page, resultado["_error"])
+            snack_erro(self.app_page, Exception(resultado["_error"]), contexto="criar o cargo")
             return
 
         self.tf_novo_cargo.value = ""
-        _snack(self.app_page, f"Cargo '{nome}' criado. Agora defina as permissões dele abaixo.")
+        snack_sucesso(self.app_page, f"Cargo '{nome}' criado. Agora defina as permissões dele abaixo.")
         log_acao(self.app_page, f"Cargo criado: '{nome}'")
         await self._carregar()
 

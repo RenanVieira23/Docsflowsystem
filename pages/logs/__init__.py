@@ -1,0 +1,1 @@
+from .view import logs_view

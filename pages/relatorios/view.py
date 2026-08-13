@@ -27,6 +27,7 @@ from database.models import get_tipos_contratos, get_tipos_prazos
 from database.supabase_client import run_db
 from utils.dataptbr import data_db_para_br, data_br_para_db
 from utils.calendario_ptbr import calendario_ptbr
+from utils.erros_ui import snack_erro, snack_sucesso
 from utils.export_relatorios import (
     exportar_clientes_excel,  exportar_clientes_pdf,
     exportar_alertas_excel,   exportar_alertas_pdf,
@@ -460,6 +461,7 @@ class RelatoriosView(ft.Column):
                 pass
         except Exception as ex:
             print("❌ Erro ao carregar clientes dropdown:", ex)
+            snack_erro(self.app_page, ex, contexto="carregar a lista de clientes")
 
         try:
             tipos_contrato = await run_db(
@@ -536,7 +538,7 @@ class RelatoriosView(ft.Column):
 
         except Exception as ex:
             print(f"❌ Erro aba {idx}:", ex)
-            self._snack("Erro ao buscar dados.")
+            snack_erro(self.app_page, ex, contexto="buscar os dados do relatório")
 
     # ══════════════════════════════════════════════════════════════
     # EVENTOS
@@ -574,7 +576,7 @@ class RelatoriosView(ft.Column):
     async def _exportar_async(self, fmt: str):
         dados = self._abas[self._idx].get_dados()
         if not dados:
-            self._snack("Nenhum dado para exportar.")
+            self._snack_info("Nenhum dado para exportar.")
             return
 
         self._set_loading(True)
@@ -585,7 +587,7 @@ class RelatoriosView(ft.Column):
         except Exception as ex:
             print("❌ Erro ao gerar arquivo:", ex)
             self._set_loading(False)
-            self._snack("Erro ao gerar o arquivo.")
+            snack_erro(self.app_page, ex, contexto="gerar o arquivo do relatório")
             return
 
         self._set_loading(False)
@@ -635,10 +637,10 @@ class RelatoriosView(ft.Column):
                 self.app_page.services.remove(picker)
                 self.app_page.update()
 
-            self._snack(f"Download iniciado: {nome}")
+            snack_sucesso(self.app_page, f"Download iniciado: {nome}")
         except Exception as ex:
             print("❌ Erro ao salvar:", ex)
-            self._snack("Erro ao gerar o download do arquivo.")
+            snack_erro(self.app_page, ex, contexto="gerar o download do arquivo")
 
     # ══════════════════════════════════════════════════════════════
     # HELPERS
@@ -651,7 +653,9 @@ class RelatoriosView(ft.Column):
         except Exception:
             pass
 
-    def _snack(self, msg: str):
+    def _snack_info(self, msg: str):
+        """Aviso neutro (não é erro técnico nem confirmação de sucesso,
+        ex: 'nenhum dado para exportar')."""
         self.app_page.snack_bar = ft.SnackBar(content=ft.Text(msg))
         self.app_page.snack_bar.open = True
         try:

@@ -64,10 +64,21 @@ def dashboard_view(page: ft.Page):
     )
 
     async def carregar():
+        # FIX (proteção contra corrida de navegação): esta tarefa é
+        # assíncrona e pode continuar rodando mesmo depois que o
+        # usuário já navegou para outra tela (ex: Dashboard -> Logs
+        # rapidamente). Sem esta checagem, um `page.update()` tardio
+        # tentaria atualizar controles (cards, gráfico) que o cliente
+        # já removeu da árvore ao trocar de tela — isso pode gerar
+        # erros de renderização do lado do cliente. A checagem
+        # `page.route != "/dashboard"` interrompe o carregamento assim
+        # que percebe que o usuário já saiu desta tela.
+        if page.route != "/dashboard":
+            return
+
         loading.visible = True
         page.update()
 
-        # ── tenant isolado ──────────────────────────────────
         tenant_id = page.local_store.get("tenant_id") if hasattr(page, "local_store") else None
 
         try:
@@ -80,6 +91,11 @@ def dashboard_view(page: ft.Page):
             print("Erro dashboard:", ex)
             clientes = contratos = alertas = []
             tot_prazos = enviados = 0
+
+        # Checagem novamente após as chamadas de rede (podem levar um
+        # tempo, e o usuário pode ter navegado embora durante a espera).
+        if page.route != "/dashboard":
+            return
 
         pendentes = max(0, tot_prazos - enviados)
 
@@ -139,6 +155,11 @@ def dashboard_view(page: ft.Page):
         )
 
         loading.visible = False
+
+        # Checagem final antes do último page.update() — mesma lógica
+        # de segurança das checagens anteriores.
+        if page.route != "/dashboard":
+            return
         page.update()
 
     page.run_task(carregar)

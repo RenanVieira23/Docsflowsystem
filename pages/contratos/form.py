@@ -28,6 +28,22 @@ FIXES v2:
     RuntimeWarning de coroutine não aguardada.
   - add_anexo removido de novo_contrato_dialog (Storage-only, sem tabela anexos)
     e removido o bloco duplicado que chamava add_anexo duas vezes.
+
+FIXES v3 (mensagens de erro):
+  - Todos os pontos que exibiam `_snack(page, f"Erro: {ex}")` (expondo a
+    exceção crua do Postgres/Supabase) agora usam utils/erros_ui.snack_erro,
+    que traduz para uma mensagem amigável em português.
+
+FIXES v4:
+  - novo_contrato_dialog agora filtra get_clientes() para exibir apenas
+    clientes ATIVOS no dropdown.
+
+FIXES v5 (esta versão):
+  - editar_contrato_dialog: campo "Data inicial" deixou de ser
+    read_only/disabled — agora abre o calendário como os demais campos
+    de data, e o Termo Final é recalculado automaticamente com base na
+    nova data inicial + vigência. A data inicial passa a ser enviada
+    no update_contrato() e validada como obrigatória no salvar().
 """
 
 import flet as ft
@@ -64,6 +80,7 @@ from database.models import (
 from utils.calendario_ptbr import calendario_ptbr
 from utils.dataptbr import data_br_para_db, data_db_para_br, somar_meses
 from utils.log_acao import log_acao
+from utils.erros_ui import snack_erro, snack_sucesso
 
 
 DB_FMT     = "%Y-%m-%d"
@@ -74,12 +91,12 @@ UPLOAD_DIR = os.environ.get("FLET_UPLOAD_DIR", "/tmp/flet_uploads")
 # HELPERS
 # ======================================================
 
-def _snack(page, msg):
+def _snack_info(page, msg):
+    """Snack neutro (avisos que não são nem sucesso nem erro técnico,
+    ex: validação de campo obrigatório)."""
     page.snack_bar = ft.SnackBar(ft.Text(msg))
     page.snack_bar.open = True
     page.update()
-
-
 
 
 def _get_tenant(page):
@@ -112,6 +129,24 @@ def _get_usuario_nome(page):
 
 def _is_int_str(s) -> bool:
     return bool((s or "").strip().isdigit())
+
+
+def _cliente_esta_ativo(cliente: dict) -> bool:
+    """
+    Mesmo critério usado em pages/clientes/view.py (ClientesView.is_ativo)
+    — mantido duplicado aqui de propósito para não criar acoplamento
+    entre form.py de contratos e view.py de clientes. Cadastros antigos
+    sem o campo "ativo" (anteriores ao soft delete) são tratados como
+    ativos, para não sumirem retroativamente do dropdown.
+    """
+    v = cliente.get("ativo")
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, str):
+        return v.lower() in ("true", "t", "1", "yes")
+    if isinstance(v, int):
+        return v == 1
+    return True
 
 
 def _parse_db(s):
@@ -203,9 +238,6 @@ class _PartePicker:
         self._page = page
         self._opcoes = opcoes or []
 
-        # chave única "id::nome" -> permite filtrar digitando o nome
-        # (o Flet filtra pela key das sugestões) e ainda recuperar o
-        # id exato ao selecionar, mesmo se houver nomes repetidos.
         self._id_por_key = {}
         sugestoes = []
         for o in self._opcoes:
@@ -226,7 +258,6 @@ class _PartePicker:
             on_change=self._on_change,
         )
 
-        # moldura visual (o AutoComplete nativo não tem label/borda própria)
         self.control = ft.Container(
             content=ft.Column(
                 [
@@ -246,14 +277,11 @@ class _PartePicker:
             bgcolor=ft.Colors.WHITE,
         )
 
-    # ------------------------------------------------------------
     def _on_select(self, e: ft.AutoCompleteSelectEvent):
         self.value = self._id_por_key.get(e.selection.key)
         self._page.update()
 
     def _on_change(self, e):
-        # se o texto digitado não corresponde mais ao nome da parte
-        # selecionada, invalida a seleção até o usuário escolher de novo
         texto_atual = e.control.value or ""
         nome_selecionado = self._nome_por_id.get(self.value)
         if nome_selecionado != texto_atual:
@@ -340,24 +368,13 @@ def _build_secao_partes(page, partes_bd, vinculos_bd, cp_existentes=None):
 # ESCRITAS CONCORRENTES (partes, prazos, exclusões) — retry + limite
 # ======================================================
 
-# Mesma lógica do limite de uploads: muitas requisições simultâneas na
-# mesma conexão podem derrubar o protocolo HTTP2 no meio
-# (ConnectionTerminated / PROTOCOL_ERROR), especialmente ao vincular
-# várias partes de uma vez. Limitar a concorrência reduz bastante a
-# chance disso acontecer.
 _LIMITE_ESCRITAS_SIMULTANEAS = asyncio.Semaphore(4)
 
 
 async def _run_db_com_retry(page: ft.Page, func, *args, tentativas: int = 3, **kwargs):
     """
     Igual a run_db(), mas tenta de novo (com um pequeno intervalo) se a
-    conexão cair no meio da requisição — o que passou a acontecer com
-    mais frequência depois que paralelizamos várias escritas (partes,
-    prazos) numa mesma chamada de salvar(). Erros "de negócio" (RLS,
-    validação) falham igual na primeira tentativa e não se beneficiam
-    do retry, mas repetir não causa problema — add_contrato_parte, por
-    exemplo, agora usa upsert, então repetir a mesma escrita não cria
-    duplicata nem quebra em erro de unicidade.
+    conexão cair no meio da requisição.
     """
     ultimo_erro = None
     async with _LIMITE_ESCRITAS_SIMULTANEAS:
@@ -375,21 +392,13 @@ async def _run_db_com_retry(page: ft.Page, func, *args, tentativas: int = 3, **k
 # SEÇÃO DE ANEXOS — Storage privado "Heringer"
 # ======================================================
 
-# Limita quantos anexos são enviados AO MESMO TEMPO. Em produção
-# (Render -> Supabase) a banda é abundante e isso quase não importa,
-# mas em conexões limitadas (ex: testes locais, internet residencial
-# mais lenta), muitos uploads simultâneos disputam a mesma banda e o
-# mais lento acaba pior do que se fossem enviados em pequenos lotes.
-# 3 ao mesmo tempo ainda dá ganho de paralelismo sem gargalar tanto.
 _LIMITE_UPLOADS_SIMULTANEOS = asyncio.Semaphore(3)
 
 
 async def _upload_anexo_com_status(page: ft.Page, contrato_id, arq: dict):
     """
     Faz o upload de um anexo atualizando o texto de status da própria
-    linha ("Pendente" -> "Enviando..." -> "Enviado ✓"/"Erro"), para o
-    usuário acompanhar o progresso de cada arquivo individualmente
-    durante o salvamento do contrato.
+    linha ("Pendente" -> "Enviando..." -> "Enviado ✓"/"Erro").
     """
     status = arq.get("status")
 
@@ -423,15 +432,7 @@ def _build_secao_anexos(page, modo, anexos_existentes=None):
     lbl_prog = ft.Text("", size=12, color=ft.Colors.BLUE_600)
     lbl_erro = ft.Text("", size=12, color=ft.Colors.RED_700)
 
-    # ======================================================
-    # FILE PICKER SERVICE GLOBAL
-    # ======================================================
-
     picker_service = page.file_picker_service
-
-    # ======================================================
-    # ARQUIVO EXISTENTE
-    # ======================================================
 
     def _row_existente(a):
 
@@ -494,10 +495,6 @@ def _build_secao_anexos(page, modo, anexos_existentes=None):
 
         lista_ui.controls.append(row)
 
-    # ======================================================
-    # ARQUIVO PENDENTE
-    # ======================================================
-
     _idx = [0]
 
     def _row_pendente(nome):
@@ -535,19 +532,9 @@ def _build_secao_anexos(page, modo, anexos_existentes=None):
 
         return cur, status_txt
 
-    # ======================================================
-    # EXISTENTES
-    # ======================================================
-
     for a in (anexos_existentes or []):
         _row_existente(a)
 
-    # ======================================================
-    # FILE PICKER CALLBACK
-    # ======================================================
-
-    # Extensões aceitas (mesma checagem existe em upload_anexo_storage,
-    # como segunda camada de proteção).
     EXTENSOES_PERMITIDAS = {
         ".pdf", ".doc", ".docx", ".xls", ".xlsx",
         ".jpg", ".jpeg", ".png", ".txt",
@@ -583,15 +570,11 @@ def _build_secao_anexos(page, modo, anexos_existentes=None):
                     })
                     page.update()
                 except Exception as ex:
-                    lbl_erro.value = f"Erro ao processar '{getattr(f, 'name', 'arquivo')}': {ex}"
+                    lbl_erro.value = f"Não foi possível processar '{getattr(f, 'name', 'arquivo')}'. Tente novamente."
+                    print(f"Erro ao processar arquivo pendente: {ex}")
                     page.update()
 
-        # ⭐⭐⭐ REGISTRA CALLBACK DINÂMICO ⭐⭐⭐
         picker_service.on_result_callback = on_result
-
-        # ==================================================
-        # BOTÃO
-        # ==================================================
 
         async def abrir_picker(e):
             await picker_service.pick_files(allow_multiple=True, with_data=True)
@@ -604,10 +587,6 @@ def _build_secao_anexos(page, modo, anexos_existentes=None):
 
     else:
         btn_add = ft.Container()
-
-    # ======================================================
-    # WIDGET FINAL
-    # ======================================================
 
     widget = ft.Column(
         [
@@ -639,30 +618,29 @@ async def novo_contrato_dialog(page: ft.Page, atualizar_lista):
 
     tenant_id = _get_tenant(page)
     if not tenant_id:
-        _snack(page, "Tenant não identificado. Faça login novamente.")
+        _snack_info(page, "Tenant não identificado. Faça login novamente.")
         return
 
-    # FIX PERFORMANCE: essas 4 consultas são independentes entre si —
-    # antes rodavam uma de cada vez (4 idas e vindas de rede em série).
-    # Agora rodam ao mesmo tempo com asyncio.gather.
-    clientes, partes_bd, vinculos_bd, tipos_contrato = await asyncio.gather(
-        run_db(page, get_clientes, tenant_id),
-        run_db(page, get_partes, tenant_id),
-        run_db(page, get_vinculos, tenant_id),
-        run_db(page, get_tipos_contratos, tenant_id),
-    )
-    clientes       = clientes or []
+    try:
+        clientes, partes_bd, vinculos_bd, tipos_contrato = await asyncio.gather(
+            run_db(page, get_clientes, tenant_id),
+            run_db(page, get_partes, tenant_id),
+            run_db(page, get_vinculos, tenant_id),
+            run_db(page, get_tipos_contratos, tenant_id),
+        )
+    except Exception as ex:
+        snack_erro(page, ex, contexto="carregar os dados para o novo contrato")
+        return
+
+    # Apenas clientes ATIVOS podem ser escolhidos para um contrato NOVO.
+    clientes       = [c for c in (clientes or []) if _cliente_esta_ativo(c)]
     partes_bd      = partes_bd or []
     vinculos_bd    = vinculos_bd or []
     tipos_contrato = tipos_contrato or []
 
     if not clientes:
-        _snack(page, "Nenhum cliente cadastrado.")
+        _snack_info(page, "Nenhum cliente ativo cadastrado.")
         return
-
-    # ======================================================
-    # CLIENTE + TIPO CONTRATO (LADO A LADO)
-    # ======================================================
 
     dd_cliente = ft.Dropdown(
         label="Cliente",
@@ -679,10 +657,6 @@ async def novo_contrato_dialog(page: ft.Page, atualizar_lista):
         ],
     )
 
-    # ======================================================
-    # RESPONSÁVEL
-    # ======================================================
-
     tf_resp = ft.TextField(
         label="Responsável",
         value=_get_usuario_nome(page),
@@ -690,19 +664,11 @@ async def novo_contrato_dialog(page: ft.Page, atualizar_lista):
         width=380
     )
 
-    # ======================================================
-    # ÍNDICE (NOVO CAMPO)
-    # ======================================================
-
     tf_indice = ft.TextField(
         label="Identificador",
         width=380,
         hint_text="Identificador do contrato"
     )
-
-    # ======================================================
-    # CLÁUSULAS
-    # ======================================================
 
     tf_clausulas = ft.TextField(
         label="Observação / Cláusulas",
@@ -711,10 +677,6 @@ async def novo_contrato_dialog(page: ft.Page, atualizar_lista):
         min_lines=3,
         max_lines=5,
     )
-
-    # ======================================================
-    # DATAS
-    # ======================================================
 
     def _set_data_ini(d):
         tf_data_ini.value = d.strftime("%d/%m/%Y")
@@ -761,10 +723,6 @@ async def novo_contrato_dialog(page: ft.Page, atualizar_lista):
         width=190
     )
 
-    # ======================================================
-    # RECALCULAR VIGÊNCIA
-    # ======================================================
-
     def recalcular():
         dt = _parse_db(data_br_para_db(tf_data_ini.value or ""))
         if dt and _is_int_str(tf_vig.value):
@@ -776,39 +734,26 @@ async def novo_contrato_dialog(page: ft.Page, atualizar_lista):
 
     tf_vig.on_change = lambda e: (recalcular(), page.update())
 
-    # ======================================================
-    # PARTES
-    # ======================================================
-
     secao_partes = _build_secao_partes(page, partes_bd, vinculos_bd)
 
-    # ======================================================
-    # ANEXOS
-    # ======================================================
-
     secao_anexos = _build_secao_anexos(page, modo="editar")
-
-    # ======================================================
-    # SALVAR
-    # ======================================================
 
     loading_salvar = ft.ProgressRing(width=16, height=16, stroke_width=2, visible=False)
 
     async def salvar(e):
 
         if not dd_cliente.value or not tf_data_ini.value:
-            _snack(page, "Cliente e data inicial são obrigatórios.")
+            _snack_info(page, "Cliente e data inicial são obrigatórios.")
             return
 
         if not data_br_para_db(tf_data_ini.value):
-            _snack(page, "Data inválida.")
+            _snack_info(page, "Data inválida.")
             return
 
         if tf_vig.value and not _is_int_str(tf_vig.value):
-            _snack(page, "Vigência inválida.")
+            _snack_info(page, "Vigência inválida.")
             return
 
-        # feedback visual imediato + evita duplo clique/duplo contrato
         btn_salvar.disabled = True
         loading_salvar.visible = True
         page.update()
@@ -836,16 +781,10 @@ async def novo_contrato_dialog(page: ft.Page, atualizar_lista):
                 })
 
             except Exception as ex:
-                _snack(page, f"Erro ao criar contrato: {ex}")
+                snack_erro(page, ex, contexto="criar o contrato")
                 return
 
             if novo:
-                # FIX PERFORMANCE: antes, cada parte vinculada e cada anexo
-                # era gravado um de cada vez, esperando a resposta do
-                # Supabase a cada chamada (N + M viagens de rede em série).
-                # Agora todas rodam em paralelo com asyncio.gather — o
-                # tempo total passa a ser o da chamada mais lenta, não a
-                # soma de todas.
                 tarefas = []
 
                 for ln in secao_partes["linhas"]:
@@ -865,13 +804,13 @@ async def novo_contrato_dialog(page: ft.Page, atualizar_lista):
                     resultados = await asyncio.gather(*tarefas, return_exceptions=True)
                     erros = [r for r in resultados if isinstance(r, Exception)]
                     if erros:
-                        _snack(page, f"Contrato criado, mas {len(erros)} item(ns) falharam ao salvar.")
+                        _snack_info(page, f"Contrato criado, mas {len(erros)} item(ns) (parte/anexo) falharam ao salvar.")
                         log_acao(page, f"Contrato '{nome}' criado com falhas parciais",
                                  f"{len(erros)} item(ns) (parte/anexo) falharam ao salvar")
 
             _fechar_dialog(page, dialog)
             atualizar_lista()
-            _snack(page, f"Contrato {nome} criado.")
+            snack_sucesso(page, f"Contrato {nome} criado.")
             log_acao(page, f"Contrato criado: '{nome}'", f"cliente_id={cli['id']}")
 
         finally:
@@ -880,10 +819,6 @@ async def novo_contrato_dialog(page: ft.Page, atualizar_lista):
             page.update()
 
     btn_salvar = ft.FilledButton("Salvar", on_click=salvar)
-
-    # ======================================================
-    # DIALOG
-    # ======================================================
 
     dialog = ft.AlertDialog(
         modal=True,
@@ -898,8 +833,6 @@ async def novo_contrato_dialog(page: ft.Page, atualizar_lista):
                     ft.Divider(height=1),
 
                     tf_resp,
-
-                    # ✅ ÍNDICE antes das cláusulas
                     tf_indice,
                     tf_clausulas,
 
@@ -936,41 +869,33 @@ async def novo_contrato_dialog(page: ft.Page, atualizar_lista):
 
 async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
 
-    data_base = _parse_db(contrato.get("data_inicial"))
-    if not data_base:
-        _snack(page, "Data inicial inválida.")
+    data_base_original = _parse_db(contrato.get("data_inicial"))
+    if not data_base_original:
+        _snack_info(page, "Data inicial inválida.")
         return
 
     tenant_id = _get_tenant(page)
     if not tenant_id:
-        _snack(page, "Tenant não identificado. Faça login novamente.")
+        _snack_info(page, "Tenant não identificado. Faça login novamente.")
         return
 
-    # FIX PERFORMANCE: 6 consultas independentes, antes feitas uma de
-    # cada vez (6 idas e vindas de rede em série) espalhadas pelo meio
-    # da montagem da tela. Agora todas rodam juntas, no início, com
-    # asyncio.gather — o restante da função só monta a UI com os
-    # dados que já chegaram.
-    #
-    # NOTA: get_partes/get_vinculos/etc. (database/models.py) engolem
-    # sua própria exceção internamente e devolvem [] em caso de falha
-    # — por isso um retry aqui em cima do run_db não teria efeito (a
-    # exceção nunca chega a escapar pra fora da função pra ser
-    # re-tentada). A causa raiz de falha de conexão sob concorrência
-    # foi corrigida na origem, em database/supabase_client.py
-    # (HTTP/2 desativado — ver comentário lá para detalhes).
-    (
-        partes_bd, vinculos_bd, tipos_contrato,
-        cp_existentes, prazos, anexos_existentes, tipos_prazos,
-    ) = await asyncio.gather(
-        run_db(page, get_partes, tenant_id),
-        run_db(page, get_vinculos, tenant_id),
-        run_db(page, get_tipos_contratos, tenant_id),
-        run_db(page, get_contrato_partes, contrato["id"]),
-        run_db(page, get_prazos_por_contrato, contrato["id"]),
-        run_db(page, list_anexos_storage, contrato["id"]),
-        run_db(page, get_tipos_prazos, tenant_id),
-    )
+    try:
+        (
+            partes_bd, vinculos_bd, tipos_contrato,
+            cp_existentes, prazos, anexos_existentes, tipos_prazos,
+        ) = await asyncio.gather(
+            run_db(page, get_partes, tenant_id),
+            run_db(page, get_vinculos, tenant_id),
+            run_db(page, get_tipos_contratos, tenant_id),
+            run_db(page, get_contrato_partes, contrato["id"]),
+            run_db(page, get_prazos_por_contrato, contrato["id"]),
+            run_db(page, list_anexos_storage, contrato["id"]),
+            run_db(page, get_tipos_prazos, tenant_id),
+        )
+    except Exception as ex:
+        snack_erro(page, ex, contexto="carregar os dados do contrato")
+        return
+
     partes_bd         = partes_bd or []
     vinculos_bd       = vinculos_bd or []
     tipos_contrato    = tipos_contrato or []
@@ -978,8 +903,6 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
     prazos            = prazos or []
     anexos_existentes = anexos_existentes or []
     tipos_prazos      = tipos_prazos or []
-
-    # ── Mesmos campos do Novo, com valores pré-preenchidos ──
 
     # Cliente: read-only (não muda no editar)
     dd_cliente = ft.Dropdown(
@@ -1023,12 +946,25 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
         max_lines=5,
     )
 
+    # FIX (esta versão): "Data inicial" agora é EDITÁVEL — antes era
+    # read_only=True + disabled=True (bloqueada de verdade). Abre o
+    # mesmo calendário usado nos demais campos de data, e ao mudar,
+    # recalcula automaticamente o Termo Final.
+    def _set_data_ini(d):
+        tf_data_ini.value = d.strftime("%d/%m/%Y")
+        recalcular()
+        page.update()
+
+    def cal_ini(e):
+        calendario_ptbr(page, on_select=_set_data_ini)
+
     tf_data_ini = ft.TextField(
         label="Data inicial (DD/MM/AAAA)",
         value=data_db_para_br(contrato.get("data_inicial")),
         width=190,
         read_only=True,
-        disabled=True,
+        prefix_icon=ft.Icons.CALENDAR_TODAY,
+        on_click=cal_ini,
     )
 
     def _set_data_ass(d):
@@ -1062,9 +998,13 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
     )
 
     def recalcular():
+        # Usa a data inicial ATUAL do campo (pode ter sido alterada
+        # pelo usuário), com fallback para a data original do
+        # contrato caso o campo esteja vazio/inválido no momento.
+        base = _parse_db(data_br_para_db(tf_data_ini.value or "")) or data_base_original
         if _is_int_str(tf_vig.value):
             tf_fim.value = data_db_para_br(
-                _format_db(_data_por_meses(data_base, int(tf_vig.value)))
+                _format_db(_data_por_meses(base, int(tf_vig.value)))
             )
         else:
             tf_fim.value = ""
@@ -1073,10 +1013,8 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
     tf_vig.on_change = lambda e: recalcular()
     recalcular()
 
-    # ── Partes ──
     secao_partes  = _build_secao_partes(page, partes_bd, vinculos_bd, cp_existentes)
 
-    # ── Prazos ──
     container_prazos = ft.Column(spacing=6)
     linhas_prazos    = []
     excluir_prazos   = set()
@@ -1097,7 +1035,6 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
             input_filter=ft.NumbersOnlyInputFilter(),
             keyboard_type=ft.KeyboardType.NUMBER,
         )
-        # Calculada automaticamente (Data Início + Meses) — não editável.
         tf_d = ft.TextField(label="Data", width=140, read_only=True)
         dd_t = ft.Dropdown(
             label="Tipo", value=tipo, width=220, menu_width=280,
@@ -1119,7 +1056,6 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
             tf_i.value = d.strftime("%d/%m/%Y")
             _recalcular()
 
-        # Calcula a data já na criação da linha (prazos existentes)
         _recalcular()
 
         def remover(e):
@@ -1151,16 +1087,22 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
         criar_linha_prazo(None)
         page.update()
 
-    # ── Anexos ──
     secao_anexos = _build_secao_anexos(page, modo="editar",
                                        anexos_existentes=anexos_existentes)
 
     loading_salvar = ft.ProgressRing(width=16, height=16, stroke_width=2, visible=False)
 
-    # ── Salvar ──
     async def salvar(e):
+        if not tf_data_ini.value:
+            _snack_info(page, "Data inicial é obrigatória.")
+            return
+
+        if not data_br_para_db(tf_data_ini.value):
+            _snack_info(page, "Data inicial inválida.")
+            return
+
         if tf_vig.value and not _is_int_str(tf_vig.value):
-            _snack(page, "Vigência inválida.")
+            _snack_info(page, "Vigência inválida.")
             return
 
         btn_salvar.disabled = True
@@ -1173,16 +1115,12 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
                 "responsavel":     tf_resp.value or "",
                 "indice":          tf_indice.value or None,
                 "clausulas":       tf_clausulas.value or "",
+                "data_inicial":    data_br_para_db(tf_data_ini.value),
                 "data_assinatura": data_br_para_db(tf_data_ass.value) if tf_data_ass.value else None,
                 "vigencia":        int(tf_vig.value) if _is_int_str(tf_vig.value) else None,
                 "termo_final":     data_br_para_db(tf_fim.value),
-            })
+            }, tenant_id)
 
-            # FIX PERFORMANCE: prazos, partes e anexos eram gravados um de
-            # cada vez, em série (cada `await` esperando a rede antes do
-            # próximo). Agora todas essas operações independentes rodam em
-            # paralelo com asyncio.gather — o tempo total passa a ser o da
-            # operação mais lenta, não a soma de todas.
             tarefas = []
 
             for pid in excluir_prazos:
@@ -1225,11 +1163,6 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
                 if cp_id is None:
                     tarefas.append(_run_db_com_retry(page, add_contrato_parte, contrato["id"], int(p_val), t_val, tenant_id))
                 else:
-                    # FIX: antes, uma parte JÁ vinculada que só teve o
-                    # tipo (ou a própria parte) trocado no dropdown
-                    # nunca era salva — só existiam os caminhos de
-                    # CRIAR (cp_id vazio) ou EXCLUIR. Agora toda linha
-                    # existente é atualizada também.
                     tarefas.append(_run_db_com_retry(page, update_contrato_parte, cp_id, int(p_val), t_val))
 
             for caminho in secao_anexos["excluir"]:
@@ -1241,10 +1174,10 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
                 resultados = await asyncio.gather(*tarefas, return_exceptions=True)
                 erros = [r for r in resultados if isinstance(r, Exception)]
                 if erros:
-                    _snack(page, f"Contrato salvo, mas {len(erros)} item(ns) falharam.")
+                    _snack_info(page, f"Contrato salvo, mas {len(erros)} item(ns) falharam.")
 
         except Exception as ex:
-            _snack(page, f"Erro: {ex}")
+            snack_erro(page, ex, contexto="salvar as alterações do contrato")
             return
         finally:
             btn_salvar.disabled = False
@@ -1253,7 +1186,7 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
 
         _fechar_dialog(page, dialog)
         on_save()
-        _snack(page, "Contrato atualizado.")
+        snack_sucesso(page, "Contrato atualizado.")
         log_acao(page, f"Contrato editado: '{contrato.get('nome')}'", f"contrato_id={contrato['id']}")
 
     btn_salvar = ft.FilledButton("Salvar", on_click=salvar)
@@ -1278,10 +1211,7 @@ async def editar_contrato_dialog(page: ft.Page, contrato: dict, on_save):
                         spacing=20,
                         wrap=True,
                         controls=[
-                            ft.Column(spacing=6, controls=[
-                                ft.Text("Data inicial:", size=12, color=ft.Colors.GREY_600),
-                                tf_data_ini,
-                            ]),
+                            tf_data_ini,
                             tf_data_ass,
                         ],
                     ),
@@ -1323,20 +1253,21 @@ async def ver_contrato_dialog(page: ft.Page, contrato: dict, clientes_map: dict)
 
     tenant_id = _get_tenant(page)
 
-    # FIX PERFORMANCE: eram 7 consultas — 5 em série no topo, e mais 2
-    # repetidas lá embaixo (get_partes/get_vinculos de novo, buscando
-    # a MESMA coisa que "todas_partes" já tinha trazido). Agora são 6
-    # consultas únicas, todas paralelas, num só lugar.
-    (
-        prazos, cp_lista, todas_partes, anexos, tipos_contrato, vinculos_bd,
-    ) = await asyncio.gather(
-        run_db(page, get_prazos_por_contrato, contrato["id"]),
-        run_db(page, get_contrato_partes, contrato["id"]),
-        run_db(page, get_partes, tenant_id),
-        run_db(page, list_anexos_storage, contrato["id"]),
-        run_db(page, get_tipos_contratos, tenant_id),
-        run_db(page, get_vinculos, tenant_id),
-    )
+    try:
+        (
+            prazos, cp_lista, todas_partes, anexos, tipos_contrato, vinculos_bd,
+        ) = await asyncio.gather(
+            run_db(page, get_prazos_por_contrato, contrato["id"]),
+            run_db(page, get_contrato_partes, contrato["id"]),
+            run_db(page, get_partes, tenant_id),
+            run_db(page, list_anexos_storage, contrato["id"]),
+            run_db(page, get_tipos_contratos, tenant_id),
+            run_db(page, get_vinculos, tenant_id),
+        )
+    except Exception as ex:
+        snack_erro(page, ex, contexto="carregar os dados do contrato")
+        return
+
     prazos         = prazos or []
     cp_lista       = cp_lista or []
     todas_partes   = todas_partes or []
@@ -1346,8 +1277,6 @@ async def ver_contrato_dialog(page: ft.Page, contrato: dict, clientes_map: dict)
     partes_map   = {str(p["id"]): p for p in todas_partes}
 
     nome_cliente = clientes_map.get(contrato.get("cliente_id"), "-")
-
-    # ── Mesmos campos do Novo, todos disabled/read_only ──
 
     dd_cliente = ft.Dropdown(
         label="Cliente",
@@ -1417,7 +1346,6 @@ async def ver_contrato_dialog(page: ft.Page, contrato: dict, clientes_map: dict)
         read_only=True,
     )
 
-    # ── Partes (read-only dropdowns) ──
     partes_bd     = todas_partes
     opts_partes   = [ft.dropdown.Option(str(p["id"]), p["nome"]) for p in partes_bd]
     opts_vinculos = [
@@ -1446,7 +1374,6 @@ async def ver_contrato_dialog(page: ft.Page, contrato: dict, clientes_map: dict)
             ft.Text("Nenhuma parte vinculada.", color=ft.Colors.GREY_500, italic=True, size=13)
         )
 
-    # ── Prazos (read-only) ──
     prazos_col = ft.Column(spacing=6)
     for p in prazos:
         prazos_col.controls.append(
@@ -1480,7 +1407,6 @@ async def ver_contrato_dialog(page: ft.Page, contrato: dict, clientes_map: dict)
             ft.Text("Nenhum prazo cadastrado.", color=ft.Colors.GREY_500, italic=True, size=13)
         )
 
-    # ── Anexos (modo ver) ──
     secao_anexos = _build_secao_anexos(page, modo="ver", anexos_existentes=anexos)
 
     dialog = ft.AlertDialog(

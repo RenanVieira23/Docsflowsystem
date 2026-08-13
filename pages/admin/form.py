@@ -1,17 +1,12 @@
 import flet as ft
 from database.models import criar_usuario_admin, update_usuario_admin, get_cargos
 from database.supabase_client import run_db
+from utils.erros_ui import snack_erro, snack_sucesso
 
 
 # ======================================================
 # HELPERS
 # ======================================================
-
-def _snack(page: ft.Page, msg: str):
-    page.snack_bar = ft.SnackBar(ft.Text(msg))
-    page.snack_bar.open = True
-    page.update()
-
 
 def _fechar(dialog, page):
     dialog.open = False
@@ -166,21 +161,21 @@ def criar_usuario_dialog(page: ft.Page, tenant_id: str, on_save):
         except Exception as ex:
             btn_salvar.disabled = False
             loading.visible = False
-            lbl_erro.value = f"Erro de conexão: {ex}"
             page.update()
+            snack_erro(page, ex, contexto="criar o usuário")
             return
 
         btn_salvar.disabled = False
         loading.visible = False
 
         if resultado.get("_error"):
-            lbl_erro.value = f"Erro: {resultado['_error']}"
+            lbl_erro.value = f"Não foi possível criar o usuário: {resultado['_error']}"
             page.update()
             return
 
         dialog.open = False
         on_save()
-        _snack(page, f"Usuário '{nome}' criado com sucesso.")
+        snack_sucesso(page, f"Usuário '{nome}' criado com sucesso.")
         page.update()
 
     btn_salvar.on_click = salvar
@@ -226,6 +221,8 @@ def criar_usuario_dialog(page: ft.Page, tenant_id: str, on_save):
 
 def editar_usuario_dialog(page: ft.Page, usuario: dict, on_save):
 
+    tenant_id = usuario.get("tenant_id") or page.local_store.get("tenant_id")
+
     tf_nome = ft.TextField(
         label="Nome do usuário",
         value=usuario.get("usuario", ""),
@@ -253,7 +250,7 @@ def editar_usuario_dialog(page: ft.Page, usuario: dict, on_save):
         options=[],
     )
     _carregar_cargos_no_dropdown(
-        page, usuario.get("tenant_id"), dd_cargo, valor_inicial=usuario.get("cargo_id")
+        page, tenant_id, dd_cargo, valor_inicial=usuario.get("cargo_id")
     )
 
     lbl_erro = ft.Text(
@@ -300,20 +297,19 @@ def editar_usuario_dialog(page: ft.Page, usuario: dict, on_save):
             dados["senha"] = tf_senha.value.strip()
 
         try:
-            resultado = await run_db(page, update_usuario_admin, usuario["id"], dados)
+            resultado = await run_db(page, update_usuario_admin, usuario["id"], dados, tenant_id)
         except Exception as ex:
-            lbl_erro.value = f"Erro de conexão: {ex}"
-            page.update()
+            snack_erro(page, ex, contexto="atualizar o usuário")
             return
 
         if isinstance(resultado, dict) and resultado.get("_error"):
-            lbl_erro.value = f"Erro: {resultado['_error']}"
+            lbl_erro.value = f"Não foi possível salvar: {resultado['_error']}"
             page.update()
             return
 
         dialog.open = False
         on_save()
-        _snack(page, f"Usuário '{nome}' atualizado.")
+        snack_sucesso(page, f"Usuário '{nome}' atualizado.")
         page.update()
 
     dialog = ft.AlertDialog(

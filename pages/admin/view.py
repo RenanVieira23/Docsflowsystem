@@ -9,9 +9,9 @@ from database.models import (
 )
 from database.supabase_client import run_db
 from pages.admin.form import criar_usuario_dialog, editar_usuario_dialog
+from pages.erros.view import tela_403
+from utils.erros_ui import snack_erro, snack_sucesso, banner_erro_carregamento
 from utils.log_acao import log_acao
-
-
 # ======================================================
 # VIEW
 # ======================================================
@@ -24,6 +24,7 @@ class AdminView(ft.Column):
         self.app_page = page
         self.usuarios = []
         self.cargos = []   # carregado junto com os usuários, usado no dropdown de cada linha
+        self._erro_carregamento = False
 
         # Tenant do admin logado
         self.tenant_id = page.local_store.get("tenant_id")
@@ -70,6 +71,8 @@ class AdminView(ft.Column):
             ], spacing=8),
         )
 
+        self.area_erro = ft.Container(visible=False)
+
         # =========================
         # LAYOUT
         # =========================
@@ -107,6 +110,7 @@ class AdminView(ft.Column):
             ),
 
             self.aviso_sem_cargos,
+            self.area_erro,
 
             ft.Divider(),
 
@@ -128,6 +132,7 @@ class AdminView(ft.Column):
 
     async def _carregar(self):
         self.loading.visible = True
+        self._erro_carregamento = False
         self.app_page.update()
 
         try:
@@ -140,19 +145,27 @@ class AdminView(ft.Column):
         except Exception as ex:
             print("Erro admin usuários:", ex)
             dados = []
-            self._snack("Não foi possível carregar os usuários. Tente novamente.")
+            self._erro_carregamento = True
 
         try:
             self.cargos = await run_db(self.app_page, get_cargos, self.tenant_id) or []
         except Exception as ex:
             print("Erro admin cargos:", ex)
             self.cargos = []
-            self._snack("Não foi possível carregar a lista de cargos.")
+            self._erro_carregamento = True
 
         self.usuarios = dados or []
-        self.aviso_sem_cargos.visible = not self.cargos
+        self.aviso_sem_cargos.visible = not self.cargos and not self._erro_carregamento
+
+        self.area_erro.visible = self._erro_carregamento
+        if self._erro_carregamento:
+            self.area_erro.content = banner_erro_carregamento(
+                "os usuários e cargos", on_retry=self.recarregar
+            )
+
         self.loading.visible = False
         self._renderizar_tabela()
+        self.app_page.update()
 
     def recarregar(self, e=None):
         self.app_page.run_task(self._carregar)
@@ -224,11 +237,6 @@ class AdminView(ft.Column):
 
         self.tabela.update()
 
-    def _snack(self, msg: str):
-        self.app_page.snack_bar = ft.SnackBar(ft.Text(msg))
-        self.app_page.snack_bar.open = True
-        self.app_page.update()
-
     # ======================================================
     # CRUD
     # ======================================================
@@ -276,22 +284,22 @@ class AdminView(ft.Column):
 
     async def _excluir(self, usuario, dialog):
         try:
-            ok = await run_db(self.app_page, delete_usuario_admin, usuario["id"])
+            ok = await run_db(self.app_page, delete_usuario_admin, usuario["id"], self.tenant_id)
         except Exception as ex:
             dialog.open = False
-            self._snack(f"Erro de conexão ao excluir: {ex}")
+            self.app_page.update()
+            snack_erro(self.app_page, ex, contexto="excluir o usuário")
             return
 
         dialog.open = False
+        self.app_page.update()
 
-        msg = (
-            f"Usuário '{usuario['usuario']}' excluído."
-            if ok else
-            "Erro ao excluir usuário."
-        )
-        self._snack(msg)
         if ok:
+            snack_sucesso(self.app_page, f"Usuário '{usuario['usuario']}' excluído.")
             log_acao(self.app_page, f"Usuário excluído: '{usuario['usuario']}'", f"usuario_id={usuario['id']}")
+        else:
+            snack_erro(self.app_page, Exception("Falha ao excluir usuário"), contexto="excluir o usuário")
+
         self.recarregar()
 
     def _fechar(self, dialog):
@@ -306,22 +314,6 @@ class AdminView(ft.Column):
 def admin_view(page: ft.Page) -> ft.Control:
     # Proteção extra: só admin acessa
     if not page.local_store.get("is_admin") and not page.local_store.get("is_global_admin"):
-        return ft.Container(
-            expand=True,
-            alignment=ft.alignment.center,
-            content=ft.Column(
-                [
-                    ft.Icon(ft.Icons.LOCK_OUTLINE, size=48, color=ft.Colors.GREY_400),
-                    ft.Text(
-                        "Acesso restrito a administradores.",
-                        color=ft.Colors.GREY_600,
-                        size=16,
-                    ),
-                ],
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                alignment=ft.MainAxisAlignment.CENTER,
-                spacing=12,
-            ),
-        )
+        return tela_403(page, "acessar")
 
     return AdminView(page)

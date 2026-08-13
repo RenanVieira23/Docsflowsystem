@@ -6,7 +6,6 @@ import threading
 import time as _time
 import requests
 from datetime import datetime, timedelta
-from functools import lru_cache
 from dotenv import load_dotenv
 
 from database.supabase_client import supabase, supabase_admin
@@ -60,20 +59,17 @@ def _apply_access_token(token: str):
 
     _set_current_access_token(token)
 
-    # PostgREST
     try:
         supabase.postgrest.auth(token)
     except Exception as e:
         print(f"❌ Erro ao aplicar token no postgrest: {e}")
 
-    # Storage
     try:
         if hasattr(supabase, "storage") and hasattr(supabase.storage, "_client"):
             supabase.storage._client.headers.update({"Authorization": f"Bearer {token}"})
     except Exception as e:
         print(f"⚠️ Aviso: não foi possível aplicar token no storage client: {e}")
 
-    # Functions
     try:
         if hasattr(supabase, "functions"):
             if hasattr(supabase.functions, "_client"):
@@ -106,68 +102,95 @@ def _merge_admin_flags(perfil: dict, auth_user) -> dict:
 # ======================================================
 # 📊 CACHE (MULTI-TENANT)
 # ======================================================
+# FIX (item 9 — bug de invalidação): a versão anterior usava
+# @lru_cache e _clear_cache() chamava .cache_clear() em TODO o cache,
+# derrubando os dados de TODOS os tenants sempre que qualquer um
+# deles salvava um cliente ou contrato — efeito colateral não
+# intencional em produção multi-tenant (um tenant grande salvando com
+# frequência faria os outros tenants recarregarem do banco toda hora).
+# Trocado por um dict simples com invalidação por chave (tenant_id),
+# então salvar dados de um tenant só invalida o cache DESSE tenant.
 
-@lru_cache(maxsize=32)
-def _cache_clientes(tenant_id: str):
+_cache_lock = threading.Lock()
+_cache_clientes_store: dict[str, list] = {}
+_cache_contratos_store: dict[str, list] = {}
+
+
+def _cache_clientes(tenant_id: str) -> list:
+    with _cache_lock:
+        if tenant_id in _cache_clientes_store:
+            return _cache_clientes_store[tenant_id]
+
     try:
         resp = _safe_exec(
-            supabase.table("clientes")
-            .select("*")
-            .eq("tenant_id", tenant_id),
+            supabase.table("clientes").select("*").eq("tenant_id", tenant_id),
             "Erro cache clientes"
         )
-        return resp.data if resp else []
+        dados = resp.data if resp else []
     except Exception as e:
         print(f"❌ erro cache clientes: {e}")
-        return []
+        dados = []
+
+    with _cache_lock:
+        _cache_clientes_store[tenant_id] = dados
+    return dados
 
 
-@lru_cache(maxsize=32)
-def _cache_contratos(tenant_id: str):
+def _cache_contratos(tenant_id: str) -> list:
+    with _cache_lock:
+        if tenant_id in _cache_contratos_store:
+            return _cache_contratos_store[tenant_id]
+
     try:
         resp = _safe_exec(
-            supabase.table("contratos")
-            .select("*")
-            .eq("tenant_id", tenant_id),
+            supabase.table("contratos").select("*").eq("tenant_id", tenant_id),
             "Erro cache contratos"
         )
-        return resp.data if resp else []
+        dados = resp.data if resp else []
     except Exception as e:
         print(f"❌ erro cache contratos: {e}")
-        return []
+        dados = []
+
+    with _cache_lock:
+        _cache_contratos_store[tenant_id] = dados
+    return dados
 
 
-def _clear_cache():
-    try:
-        _cache_clientes.cache_clear()
-        _cache_contratos.cache_clear()
-    except Exception as e:
-        print(f"❌ erro ao limpar cache: {e}")
+def _clear_cache(tenant_id: str | None = None):
+    """
+    Invalida o cache de clientes/contratos. Se `tenant_id` for
+    informado, limpa só os dados DESSE tenant (comportamento padrão
+    esperado ao salvar/editar/excluir). Sem tenant_id, limpa tudo —
+    usado apenas como rede de segurança em chamadas legadas que ainda
+    não repassam o tenant.
+    """
+    with _cache_lock:
+        if tenant_id:
+            _cache_clientes_store.pop(tenant_id, None)
+            _cache_contratos_store.pop(tenant_id, None)
+        else:
+            _cache_clientes_store.clear()
+            _cache_contratos_store.clear()
 
 
 # ======================================================
 # 🛡️ RATE LIMITING — proteção contra força bruta
 # ======================================================
-# LIMITAÇÃO CONHECIDA: este controle vive em memória do processo
-# Python. Funciona bem com uma única instância/dyno (ex: 1 serviço no
-# Render). Se o sistema crescer para múltiplas instâncias rodando em
-# paralelo (load balancer com 2+ processos), este controle PRECISA
-# migrar para uma tabela no banco (ex: "tentativas_login") ou um
-# cache compartilhado (Redis) — cada processo tem sua própria memória
-# e não veria as tentativas feitas nos outros processos.
+# LIMITAÇÃO CONHECIDA: vive em memória do processo — válido para uma
+# única instância. Ver database/supabase_client.py para o mesmo tipo
+# de observação.
 
 _MAX_TENTATIVAS_LOGIN = 5
-_JANELA_BLOQUEIO_LOGIN_SEG = 15 * 60  # 15 minutos
+_JANELA_BLOQUEIO_LOGIN_SEG = 15 * 60
 
 _MAX_SOLICITACOES_RESET = 3
-_JANELA_BLOQUEIO_RESET_SEG = 60 * 60  # 1 hora
+_JANELA_BLOQUEIO_RESET_SEG = 60 * 60
 
 _tentativas: dict[str, list[float]] = {}
 _lock_tentativas = threading.Lock()
 
 
 def _registrar_tentativa(chave: str, janela_seg: int):
-    """Registra uma nova tentativa (login falho ou solicitação de reset)."""
     agora = _time.time()
     with _lock_tentativas:
         historico = _tentativas.setdefault(chave, [])
@@ -176,13 +199,11 @@ def _registrar_tentativa(chave: str, janela_seg: int):
 
 
 def _limpar_tentativas(chave: str):
-    """Zera o histórico — chamado após um login bem-sucedido."""
     with _lock_tentativas:
         _tentativas.pop(chave, None)
 
 
 def _esta_bloqueado(chave: str, limite: int, janela_seg: int) -> tuple[bool, int]:
-    """Retorna (bloqueado, segundos_restantes_até_liberar)."""
     agora = _time.time()
     with _lock_tentativas:
         historico = [t for t in _tentativas.get(chave, []) if agora - t < janela_seg]
@@ -197,21 +218,8 @@ def _esta_bloqueado(chave: str, limite: int, janela_seg: int) -> tuple[bool, int
 # ======================================================
 # 🔑 SESSÕES TEMPORÁRIAS DE RECUPERAÇÃO DE SENHA
 # ======================================================
-# O código de verificação do Supabase (OTP) é de USO ÚNICO — uma vez
-# validado com verify_otp(), ele não pode ser usado de novo, mesmo
-# que a operação seguinte (trocar a senha) falhe por outro motivo
-# (ex: "a nova senha deve ser diferente da atual"). Sem este cache,
-# esse cenário obrigava o usuário a pedir um e-mail novo toda vez
-# que errasse a escolha da nova senha — péssima experiência.
-#
-# Aqui guardamos a sessão de recuperação (access_token) já validada,
-# por um tempo curto, para que uma NOVA tentativa de troca de senha
-# (mesma sessão de recuperação) não precise validar o código de novo.
-#
-# MESMA LIMITAÇÃO do rate limiting acima: vive em memória do processo,
-# válido para uma única instância. Ver observação em _tentativas.
 
-_JANELA_SESSAO_RECUPERACAO_SEG = 10 * 60  # 10 minutos
+_JANELA_SESSAO_RECUPERACAO_SEG = 10 * 60
 
 _sessoes_recuperacao: dict[str, dict] = {}
 _lock_sessoes_recuperacao = threading.Lock()
@@ -266,7 +274,6 @@ def autenticar_usuario(email: str, senha: str):
             _registrar_tentativa(chave, _JANELA_BLOQUEIO_LOGIN_SEG)
             return None
 
-        # login válido — limpa o histórico de tentativas falhas deste e-mail
         _limpar_tentativas(chave)
 
         auth_uid = str(res.user.id)
@@ -296,9 +303,6 @@ def autenticar_usuario(email: str, senha: str):
 
         perfil = _merge_admin_flags(perfil, res.user)
 
-        # Cargo + permissões por módulo — carregados uma vez no login
-        # e guardados em page.local_store (ver pages/login/view.py),
-        # evitando consultar a cada clique.
         cargo_nome = None
         cargo_id = perfil.get("cargo_id")
         if cargo_id:
@@ -332,35 +336,8 @@ def autenticar_usuario(email: str, senha: str):
 # ======================================================
 # 🔑 RECUPERAÇÃO DE SENHA
 # ======================================================
-# Fluxo em 2 etapas com CÓDIGO NUMÉRICO (não link por e-mail):
-# o Flet roda como uma conexão de WebSocket server-side, então um
-# link de redefinição com token no fragmento da URL (#access_token=...)
-# nunca chegaria ao servidor. Por isso usamos o código de verificação
-# de 6 dígitos que o Supabase também envia (variável {{ .Token }} no
-# template de e-mail) — o usuário digita o código direto na tela do
-# app, sem precisar clicar em nenhum link.
-#
-# ⚠️ AÇÃO NECESSÁRIA NO PAINEL SUPABASE:
-# 1) Authentication → Email Templates → "Reset Password" precisa
-#    incluir {{ .Token }} no corpo do e-mail (o template padrão só
-#    traz {{ .ConfirmationURL }}, que não serve para este fluxo).
-# 2) Authentication → Sign In / Providers → Email → campo
-#    "Email OTP Expiration" controla por quantos segundos o código
-#    vale — ajuste para 300–600 (5–10 minutos) se quiser um código
-#    de vida mais curta. Isso é uma configuração do projeto Supabase,
-#    não pode ser controlada por este código Python.
 
 def solicitar_redefinicao_senha(email: str) -> dict:
-    """
-    Dispara o e-mail com o código de redefinição de senha.
-
-    SEGURANÇA: sempre retorna {"ok": True}, mesmo se o e-mail não
-    existir na base — isso evita que esta tela seja usada para
-    descobrir quais e-mails estão cadastrados no sistema (enumeração
-    de usuários). O rate limit abaixo evita uso abusivo (spam de
-    e-mails) sem revelar nenhuma informação sobre a existência do
-    e-mail.
-    """
     email_norm = (email or "").strip().lower()
     if not email_norm:
         return {"_error": "Informe um e-mail."}
@@ -372,33 +349,17 @@ def solicitar_redefinicao_senha(email: str) -> dict:
         return {"_error": f"Muitas solicitações. Tente novamente em {minutos} minuto(s)."}
 
     _registrar_tentativa(chave, _JANELA_BLOQUEIO_RESET_SEG)
-
-    # Um novo código foi solicitado — qualquer sessão de recuperação
-    # anterior (de uma tentativa anterior) deixa de fazer sentido.
     _limpar_sessao_recuperacao(email_norm)
 
     try:
         supabase.auth.reset_password_email(email_norm)
     except Exception as e:
-        # Não repassa o erro real ao usuário (poderia vazar se o
-        # e-mail existe ou não) — apenas loga no servidor.
         print(f"❌ Erro ao solicitar redefinição de senha ({email_norm}): {e}")
 
     return {"ok": True}
 
 
 def confirmar_redefinicao_senha(email: str, codigo: str, nova_senha: str) -> dict:
-    """
-    Segunda etapa: valida o código de 6 dígitos recebido por e-mail e,
-    se correto, já troca a senha do usuário para `nova_senha`.
-
-    FIX (reuso de código): o código do Supabase é de uso único. Se o
-    usuário digitar o código certo mas a troca de senha falhar por
-    outro motivo (ex: "a nova senha deve ser diferente da atual"), a
-    sessão de recuperação já validada é reaproveitada nas próximas
-    tentativas por até 10 minutos — o usuário NÃO precisa pedir um
-    código novo, só corrige a senha e tenta de novo.
-    """
     email_norm = (email or "").strip().lower()
     codigo = (codigo or "").strip()
     nova_senha = (nova_senha or "").strip()
@@ -412,9 +373,6 @@ def confirmar_redefinicao_senha(email: str, codigo: str, nova_senha: str) -> dic
 
     try:
         if sessao_cache:
-            # Código já validado antes nesta janela — reaplica a
-            # sessão de recuperação existente em vez de validar de
-            # novo (o código já foi consumido na primeira vez).
             token = sessao_cache["access_token"]
         else:
             if not codigo:
@@ -437,7 +395,6 @@ def confirmar_redefinicao_senha(email: str, codigo: str, nova_senha: str) -> dic
         _apply_access_token(token)
         supabase.auth.update_user({"password": nova_senha})
 
-        # sucesso — libera o cache e encerra a sessão de recuperação
         _limpar_sessao_recuperacao(email_norm)
         try:
             supabase.auth.sign_out()
@@ -452,9 +409,6 @@ def confirmar_redefinicao_senha(email: str, codigo: str, nova_senha: str) -> dic
         print(f"❌ Erro ao confirmar redefinição de senha ({email_norm}): {e}")
 
         if "different from the old password" in msg_lower or "should be different" in msg_lower:
-            # A sessão de recuperação continua válida no cache — o
-            # usuário só precisa escolher outra senha, sem pedir novo
-            # código.
             return {
                 "_error": (
                     "A nova senha deve ser diferente da senha atual. "
@@ -464,31 +418,17 @@ def confirmar_redefinicao_senha(email: str, codigo: str, nova_senha: str) -> dic
             }
 
         if "expired" in msg_lower or "invalid" in msg_lower or "token" in msg_lower:
-            # Erro de token de verdade (expirado/inválido) — aqui sim
-            # descartamos o cache, pois a sessão não é mais utilizável.
             _limpar_sessao_recuperacao(email_norm)
             return {"_error": "Código inválido ou expirado. Solicite um novo código."}
 
         return {"_error": "Não foi possível redefinir a senha. Tente novamente."}
+
 
 # ======================================================
 # 📜 TERMOS DE USO / POLÍTICA DE PRIVACIDADE (LGPD)
 # ======================================================
 
 def registrar_aceite_termos(usuario_id: int, versao: str) -> dict:
-    """
-    Registra que o usuário aceitou a versão vigente dos Termos de Uso
-    e da Política de Privacidade — grava data/hora e a versão aceita
-    (ver utils/termos.py -> VERSAO_TERMOS_ATUAL). Chamado no login,
-    logo após o usuário confirmar o aceite na tela obrigatória (ver
-    pages/login/view.py).
-
-    Usa supabase_admin (service role): este é um registro de sistema
-    sobre o próprio cadastro do usuário — não deve depender de uma
-    política de RLS de UPDATE em 'usuarios' para o próprio usuário
-    (que hoje não existe; apenas o client administrativo edita essa
-    tabela, ver update_usuario_admin).
-    """
     try:
         client = supabase_admin or supabase
         resp = (
@@ -538,10 +478,8 @@ def get_tenant_por_id(tenant_id):
 def get_clientes(tenant_id: str, force=False):
     try:
         if force:
-            _clear_cache()
-
+            _clear_cache(tenant_id)
         return list(_cache_clientes(tenant_id))
-
     except Exception as e:
         print(f"❌ erro clientes: {e}")
         return []
@@ -552,7 +490,7 @@ def add_cliente(cliente: dict):
         if "tenant_id" not in cliente:
             raise Exception("tenant_id obrigatório")
         data = supabase.table("clientes").insert(cliente).execute()
-        _clear_cache()
+        _clear_cache(cliente["tenant_id"])
         return data.data[0] if data.data else None
     except Exception as e:
         print(f"❌ erro add cliente: {e}")
@@ -560,6 +498,8 @@ def add_cliente(cliente: dict):
 
 
 def delete_cliente(cliente_id: int):
+    """Não usado pela UI — exclusão visível é sempre soft delete via
+    update_cliente({"ativo": False}). Ver pages/clientes/view.py."""
     try:
         supabase.table("clientes").delete().eq("id", cliente_id).execute()
         _clear_cache()
@@ -567,7 +507,7 @@ def delete_cliente(cliente_id: int):
         print(f"❌ erro delete cliente: {e}")
 
 
-def update_cliente(cliente_id: int, dados: dict):
+def update_cliente(cliente_id: int, dados: dict, tenant_id: str | None = None):
     try:
         resp = (
             supabase.table("clientes")
@@ -575,8 +515,9 @@ def update_cliente(cliente_id: int, dados: dict):
             .eq("id", cliente_id)
             .execute()
         )
-        _clear_cache()
-        return resp.data[0] if resp.data else None
+        cliente_atualizado = resp.data[0] if resp.data else None
+        _clear_cache(tenant_id or (cliente_atualizado or {}).get("tenant_id"))
+        return cliente_atualizado
     except Exception as e:
         print(f"❌ erro update cliente: {e}")
         return None
@@ -614,7 +555,7 @@ def add_contrato(contrato: dict):
         if "tenant_id" not in contrato:
             raise Exception("tenant_id obrigatório no contrato")
         resp = supabase.table("contratos").insert(contrato).execute()
-        _clear_cache()
+        _clear_cache(contrato["tenant_id"])
         return resp.data[0] if resp.data else None
     except Exception as e:
         print(f"❌ Erro ao adicionar contrato: {e}")
@@ -629,7 +570,7 @@ def delete_contrato(contrato_id: int):
         print(f"❌ Erro ao deletar contrato: {e}")
 
 
-def update_contrato(contrato_id: int, dados: dict):
+def update_contrato(contrato_id: int, dados: dict, tenant_id: str | None = None):
     try:
         resp = (
             supabase.table("contratos")
@@ -637,8 +578,9 @@ def update_contrato(contrato_id: int, dados: dict):
             .eq("id", contrato_id)
             .execute()
         )
-        _clear_cache()
-        return resp.data[0] if resp.data else None
+        contrato_atualizado = resp.data[0] if resp.data else None
+        _clear_cache(tenant_id or (contrato_atualizado or {}).get("tenant_id"))
+        return contrato_atualizado
     except Exception as e:
         print(f"❌ Erro ao atualizar contrato: {e}")
         return None
@@ -649,11 +591,6 @@ def update_contrato(contrato_id: int, dados: dict):
 # ======================================================
 
 def add_prazo(contrato_id, meses, observacao, data_criacao, data_vencimento, tenant_id, tipo=None):
-    """
-    data_criacao = "Data Início" do prazo na tela (pode ser diferente da
-    data de assinatura do contrato). data_vencimento = calculada
-    automaticamente na tela como data_criacao + meses.
-    """
     try:
         novo_prazo = {
             "contrato_id": contrato_id,
@@ -661,7 +598,7 @@ def add_prazo(contrato_id, meses, observacao, data_criacao, data_vencimento, ten
             "observacao": observacao or "",
             "data_criacao": data_criacao or datetime.now().strftime("%Y-%m-%d"),
             "data_vencimento": data_vencimento,
-            "tenant_id": tenant_id,  # ← obrigatório para RLS
+            "tenant_id": tenant_id,
             "tipo": tipo,
         }
         resp = supabase.table("prazos").insert(novo_prazo).execute()
@@ -693,13 +630,9 @@ def update_prazo(prazo_id: int, dados: dict):
 
 # ======================================================
 # NOTIFICAÇÕES
-# FIX RLS: tenant_id agora obrigatório no insert
 # ======================================================
 
 def add_notificacao(prazo_id, tenant_id: str, dias_antes=None, data_enviada=None):
-    """
-    tenant_id é obrigatório para passar na política RLS de INSERT.
-    """
     try:
         if not tenant_id:
             raise Exception("tenant_id obrigatório em add_notificacao")
@@ -707,7 +640,7 @@ def add_notificacao(prazo_id, tenant_id: str, dias_antes=None, data_enviada=None
             "prazo_id": prazo_id,
             "dias_antes": dias_antes or 0,
             "data_enviada": data_enviada or datetime.now().strftime("%Y-%m-%d"),
-            "tenant_id": tenant_id,  # ← obrigatório para RLS
+            "tenant_id": tenant_id,
         }
         resp = supabase.table("notificacoes_enviadas").insert(nova).execute()
         return resp.data[0] if resp.data else nova
@@ -727,7 +660,6 @@ def get_notificacoes_por_prazo(prazo_id):
 
 # ======================================================
 # TIPOS DE NOTIFICAÇÃO
-# (tabela sem tenant_id — política libera para autenticados)
 # ======================================================
 
 def get_tipos_notificacao():
@@ -769,18 +701,9 @@ def delete_tipo_notificacao(tipo_id: int):
 
 # ======================================================
 # LOGS
-# FIX RLS: tenant_id agora obrigatório no insert
 # ======================================================
 
 def registrar_log(usuario_id, acao, detalhes=None, tenant_id=None, nivel="acao"):
-    """
-    tenant_id é obrigatório para passar na política RLS de INSERT.
-    Se não for fornecido, o log é silenciosamente ignorado para não
-    quebrar o fluxo principal da aplicação.
-
-    nivel: "acao" (padrão, ação normal do usuário), "erro" (falha em
-    alguma operação) ou "sistema" (desconexão, crash de sessão).
-    """
     try:
         if not tenant_id:
             print(f"⚠️ registrar_log: tenant_id não fornecido, log ignorado (acao={acao})")
@@ -790,18 +713,12 @@ def registrar_log(usuario_id, acao, detalhes=None, tenant_id=None, nivel="acao")
             "acao": acao,
             "detalhes": detalhes,
             "data_hora": _now(),
-            "tenant_id": tenant_id,  # ← obrigatório para RLS
+            "tenant_id": tenant_id,
             "nivel": nivel,
         }
         try:
             supabase.table("logs").insert(novo).execute()
         except Exception as e:
-            # FIX: se o SQL de migração (sql/2026-07_logs_nivel.sql)
-            # ainda não foi rodado no Supabase, a coluna "nivel" não
-            # existe e o insert falha com PGRST204 — isso derrubaria
-            # TODO log do sistema até a migração ser aplicada. Em vez
-            # de falhar, tenta de novo sem a coluna nova, registrando
-            # ao menos a ação (sem a classificação de nível).
             if "PGRST204" in str(e) or "nivel" in str(e):
                 print("⚠️ Coluna 'nivel' ainda não existe em 'logs' — "
                       "rode sql/2026-07_logs_nivel.sql. Gravando sem nivel por enquanto.")
@@ -814,22 +731,12 @@ def registrar_log(usuario_id, acao, detalhes=None, tenant_id=None, nivel="acao")
 
 
 def registrar_log_erro(tenant_id, usuario_id, contexto: str, erro: str):
-    """
-    Registra um erro/evento de sistema (nivel="erro") usando o client
-    de SERVIÇO diretamente (supabase_admin), não o client de sessão do
-    usuário. Isso é proposital: se o problema que estamos logando for
-    justamente a sessão/conexão do usuário falhando, um insert que
-    dependa dessa mesma sessão poderia falhar junto — o log de erro
-    não pode depender da própria coisa que pode estar quebrada.
-
-    Nunca lança exceção — logging não pode derrubar o fluxo principal.
-    """
     try:
         client = supabase_admin or supabase
         payload = {
             "usuario_id": usuario_id,
             "acao": contexto,
-            "detalhes": (erro or "")[:2000],  # evita estourar o tamanho da coluna
+            "detalhes": (erro or "")[:2000],
             "data_hora": _now(),
             "tenant_id": tenant_id,
             "nivel": "erro",
@@ -843,19 +750,51 @@ def registrar_log_erro(tenant_id, usuario_id, contexto: str, erro: str):
             else:
                 raise
     except Exception as e:
-        # Se nem isso funcionar, ao menos garante que sobra no console.
-        print(f"❌ Erro ao registrar log de erro (contexto={contexto}): {e}")
+        print(f"❌ Também falhou ao registrar o erro acima no banco: {e}")
+
+
+def get_logs(
+    tenant_id: str,
+    nivel: str | None = None,
+    usuario_id: int | None = None,
+    busca: str | None = None,
+    limit: int = 25,
+    offset: int = 0,
+) -> tuple[list, int]:
+    """
+    Lista de logs de auditoria do tenant, paginada no banco (não
+    carrega tudo em memória — tabela de logs cresce indefinidamente).
+    Usada por pages/logs/view.py. Retorna (linhas, total_de_registros).
+
+    Filtros opcionais: nivel ("acao"/"erro"/"sistema"), usuario_id,
+    busca (texto contido no campo "acao").
+    """
+    try:
+        q = (
+            supabase.table("logs")
+            .select("*", count="exact")
+            .eq("tenant_id", tenant_id)
+        )
+        if nivel and nivel != "todos":
+            q = q.eq("nivel", nivel)
+        if usuario_id:
+            q = q.eq("usuario_id", usuario_id)
+        if busca:
+            q = q.ilike("acao", f"%{busca}%")
+
+        q = q.order("data_hora", desc=True).range(offset, offset + limit - 1)
+        resp = q.execute()
+        return resp.data or [], (resp.count or 0)
+    except Exception as e:
+        print(f"❌ Erro ao buscar logs: {e}")
+        return [], 0
 
 
 # ======================================================
 # ANEXOS
-# FIX RLS: tenant_id agora obrigatório no insert
 # ======================================================
 
 def add_anexo(contrato_id, nome_arquivo, tenant_id: str, arquivo_url=None, arquivo_path=None):
-    """
-    tenant_id é obrigatório para passar na política RLS de INSERT.
-    """
     try:
         if not tenant_id:
             raise Exception("tenant_id obrigatório em add_anexo")
@@ -864,7 +803,7 @@ def add_anexo(contrato_id, nome_arquivo, tenant_id: str, arquivo_url=None, arqui
             "nome_arquivo": nome_arquivo,
             "arquivo_url": arquivo_url,
             "arquivo_path": arquivo_path,
-            "tenant_id": tenant_id,  # ← obrigatório para RLS
+            "tenant_id": tenant_id,
         }
         resp = supabase.table("anexos").insert(novo).execute()
         return resp.data[0] if resp.data else novo
@@ -886,8 +825,6 @@ def get_anexos_por_contrato(contrato_id):
 
 # ======================================================
 # DASHBOARD / RELATÓRIOS
-# Com RLS ativo, as queries abaixo auto-filtram pelo tenant
-# do usuário logado via JWT — não precisam de tenant_id explícito.
 # ======================================================
 
 def get_total_prazos():
@@ -970,7 +907,6 @@ def _formatar_relatorio(dados, status):
 
 # ======================================================
 # ALERTAS
-# Com RLS, auto-filtra pelo tenant do JWT.
 # ======================================================
 
 def get_alertas_por_periodo(dias=7):
@@ -1030,11 +966,6 @@ def listar_usuarios_admin():
 
 # ======================================================
 # 👤 PARTES
-# get_partes(tenant_id) filtra explicitamente por tenant_id
-# (além do RLS via JWT) — mesmo padrão de get_clientes(),
-# get_contratos() etc. tenant_id é opcional só por retrocompat;
-# sempre que possível, chame passando o tenant_id da sessão.
-# add_parte: o dict deve conter tenant_id — veja partes/form.py
 # ======================================================
 
 def get_partes(tenant_id: str = None):
@@ -1050,10 +981,6 @@ def get_partes(tenant_id: str = None):
 
 
 def add_parte(parte: dict):
-    """
-    parte deve conter tenant_id para passar na política RLS de INSERT.
-    Ex: add_parte({"nome": ..., "tipo": ..., "documento": ..., "tenant_id": tid})
-    """
     try:
         if "tenant_id" not in parte:
             raise Exception("tenant_id obrigatório em add_parte")
@@ -1080,7 +1007,6 @@ def update_parte(parte_id: int, dados: dict):
 
 # ======================================================
 # 🏷️ TIPOS DE PARTES
-# (tabela tipos_partes — sem tenant_id no schema)
 # ======================================================
 
 def get_tipos_partes():
@@ -1153,17 +1079,9 @@ def delete_tipo_parte(tipo_id: int):
         return False
 # ======================================================
 # 🔗 CONTRATO_PARTES
-# FIX RLS: tenant_id agora obrigatório no insert
 # ======================================================
 
 def get_nomes_partes_por_contrato(tenant_id: str) -> dict:
-    """
-    Retorna {contrato_id: "Nome da parte 1, Nome da parte 2, ..."} —
-    os nomes das partes vinculadas a cada contrato do tenant, numa
-    ÚNICA consulta (evita N+1: uma chamada por contrato). Usado para
-    permitir buscar contratos pelo nome de uma parte vinculada, tanto
-    na listagem de contratos quanto no cadastro de prazos.
-    """
     try:
         resp = (
             supabase.table("contrato_partes")
@@ -1200,20 +1118,6 @@ def get_contrato_partes(contrato_id: int):
 
 
 def add_contrato_parte(contrato_id: int, parte_id: int, tipo_vinculo: str, tenant_id: str):
-    """
-    tenant_id é obrigatório para passar na política RLS de INSERT.
-
-    Usa upsert (não insert puro): se a mesma combinação
-    contrato_id + parte_id + tipo_vinculo já existir, apenas retorna
-    a linha existente em vez de dar erro de duplicidade. Isso torna
-    seguro tentar de novo automaticamente se a conexão cair no meio
-    do envio (ver _run_db_com_retry em pages/contratos/form.py) —
-    sem isso, uma nova tentativa depois de uma falha de rede poderia
-    criar linha duplicada ou falhar por violação de unicidade.
-
-    Requer a constraint única (contrato_id, parte_id, tipo_vinculo)
-    na tabela — ver instruções de SQL fornecidas.
-    """
     try:
         if not tenant_id:
             raise Exception("tenant_id obrigatório em add_contrato_parte")
@@ -1221,7 +1125,7 @@ def add_contrato_parte(contrato_id: int, parte_id: int, tipo_vinculo: str, tenan
             "contrato_id": contrato_id,
             "parte_id": parte_id,
             "tipo_vinculo": tipo_vinculo,
-            "tenant_id": tenant_id,  # ← obrigatório para RLS
+            "tenant_id": tenant_id,
         }
         resp = (
             supabase.table("contrato_partes")
@@ -1244,14 +1148,6 @@ def delete_contrato_parte(cp_id: int):
 
 
 def update_contrato_parte(cp_id: int, parte_id: int, tipo_vinculo: str):
-    """
-    Atualiza a parte e/ou o tipo de vínculo de uma linha JÁ EXISTENTE
-    em contrato_partes. Antes desta função, o formulário de edição de
-    contrato só sabia CRIAR vínculo novo (cp_id vazio) ou EXCLUIR — se
-    o usuário só trocasse o tipo de uma parte já vinculada (sem
-    remover/readicionar), nada era salvo, porque não existia nenhuma
-    chamada de update para esse caso.
-    """
     try:
         resp = (
             supabase.table("contrato_partes")
@@ -1270,7 +1166,6 @@ def update_contrato_parte(cp_id: int, parte_id: int, tipo_vinculo: str):
 # ======================================================
 
 def get_usuarios_do_tenant(tenant_id: str) -> list:
-    """Lista usuários do tenant via service role (bypass RLS intencional)."""
     try:
         client = supabase_admin or supabase
         resp = (
@@ -1287,7 +1182,6 @@ def get_usuarios_do_tenant(tenant_id: str) -> list:
 
 
 def get_usuarios() -> list:
-    """Lista todos os usuários sem filtro de tenant (admin global)."""
     try:
         client = supabase_admin or supabase
         resp = (
@@ -1357,7 +1251,10 @@ def criar_usuario_admin(
         return {"_error": str(e)}
 
 
-def update_usuario_admin(usuario_id: int, dados: dict) -> dict:
+def update_usuario_admin(usuario_id: int, dados: dict, tenant_id: str) -> dict:
+    if not tenant_id:
+        return {"_error": "tenant_id obrigatório."}
+
     senha = dados.pop("senha", None)
 
     try:
@@ -1366,9 +1263,12 @@ def update_usuario_admin(usuario_id: int, dados: dict) -> dict:
             .table("usuarios")
             .update(dados)
             .eq("id", usuario_id)
+            .eq("tenant_id", tenant_id)
             .execute()
         )
-        perfil = resp.data[0] if resp.data else {}
+        perfil = resp.data[0] if resp.data else None
+        if not perfil:
+            return {"_error": "Usuário não encontrado neste tenant."}
     except Exception as e:
         return {"_error": str(e)}
 
@@ -1384,22 +1284,32 @@ def update_usuario_admin(usuario_id: int, dados: dict) -> dict:
     return perfil
 
 
-def delete_usuario_admin(usuario_id: int) -> bool:
+def delete_usuario_admin(usuario_id: int, tenant_id: str) -> bool:
+    if not tenant_id:
+        print("❌ delete_usuario_admin chamado sem tenant_id — operação recusada.")
+        return False
+
     try:
         resp = (
             supabase_admin
             .table("usuarios")
             .select("auth_uid")
             .eq("id", usuario_id)
-            .single()
+            .eq("tenant_id", tenant_id)
+            .maybe_single()
             .execute()
         )
 
-        auth_uid = resp.data.get("auth_uid") if resp.data else None
+        if not resp or not resp.data:
+            print(f"❌ delete_usuario_admin: usuário {usuario_id} não pertence ao tenant {tenant_id}.")
+            return False
+
+        auth_uid = resp.data.get("auth_uid")
 
         supabase_admin.table("usuarios") \
             .delete() \
             .eq("id", usuario_id) \
+            .eq("tenant_id", tenant_id) \
             .execute()
 
         if auth_uid:
@@ -1469,14 +1379,11 @@ def update_vinculo(vinculo_id: int, dados: dict) -> dict:
 
 # ======================================================
 # 📄 TIPOS DE CONTRATOS
-# Função única consolidada (havia duplicata no código original).
-# Com RLS ativo, o SELECT auto-filtra pelo tenant do JWT.
 # ======================================================
 
 def get_tipos_contratos(tenant_id: str = None):
     try:
         q = supabase.table("tipos_contratos").select("*").order("nome")
-        # filtro explícito opcional — com RLS já está filtrado pelo JWT
         if tenant_id:
             q = q.eq("tenant_id", tenant_id)
         resp = _safe_exec(q, "Erro tipos_contratos")
@@ -1523,7 +1430,6 @@ def delete_tipo_contrato(tipo_id: int):
 
 # ======================================================
 # ⏰ TIPOS DE PRAZOS
-# Função única consolidada (havia duplicata no código original).
 # ======================================================
 
 def get_tipos_prazos(tenant_id: str = None):
@@ -1538,7 +1444,6 @@ def get_tipos_prazos(tenant_id: str = None):
         return []
 
 
-# Alias mantido para compatibilidade com chamadas antigas
 def get_tipos_prazos_db(tenant_id: str = None) -> list:
     return get_tipos_prazos(tenant_id)
 
@@ -1555,7 +1460,6 @@ def add_tipo_prazo(nome: str, tenant_id: str):
         return None
 
 
-# Alias mantido para compatibilidade
 def add_tipo_prazo_db(nome: str, tenant_id: str) -> dict:
     result = add_tipo_prazo(nome, tenant_id)
     return result or {}
@@ -1584,7 +1488,6 @@ def delete_tipo_prazo(tipo_id: int):
         return False
 
 
-# Alias mantido para compatibilidade
 def delete_tipo_prazo_db(tipo_id: int) -> bool:
     return delete_tipo_prazo(tipo_id)
 
@@ -1621,11 +1524,6 @@ EXTENSOES_ANEXO_PERMITIDAS = {
 
 
 def _sanitizar_nome_arquivo(nome: str) -> str:
-    """
-    Remove caracteres perigosos do nome do arquivo antes de montar o
-    caminho no Storage — evita que um nome como '../../outro/arquivo'
-    tente escrever fora da pasta do contrato.
-    """
     nome = os.path.basename(nome or "arquivo")
     nome = re.sub(r"[^A-Za-z0-9._-]", "_", nome)
     return nome or "arquivo"
@@ -1688,19 +1586,11 @@ def get_anexo_signed_url(arquivo_path: str, expires_in: int = 3600) -> str | Non
 # ======================================================
 # 🔐 CARGOS E PERMISSÕES
 # ======================================================
-# Cada usuário tem exatamente 1 cargo (usuarios.cargo_id). Cada cargo
-# tem permissões independentes por módulo: ler / cadastrar / editar.
-# Módulos: clientes, contratos, categorias, prazos, partes.
-# Leitura roda no client autenticado da sessão (RLS já filtra pelo
-# tenant do JWT); escrita passa pela chave de serviço (mesmo padrão
-# de criar_usuario_admin), pois só a tela de Administração — já
-# protegida por is_admin/is_global_admin — chama essas funções.
 
 MODULOS_PERMISSAO = ["clientes", "contratos", "categorias", "prazos", "partes"]
 
 
 def get_cargos(tenant_id: str) -> list:
-    """Lista os cargos do tenant, ordenados (padrão primeiro, depois por nome)."""
     try:
         resp = _safe_exec(
             supabase.table("cargos")
@@ -1717,44 +1607,53 @@ def get_cargos(tenant_id: str) -> list:
 
 
 def get_cargo_permissoes(cargo_id: int) -> dict:
-    """Retorna {modulo: {pode_ler, pode_cadastrar, pode_editar}} para o cargo."""
     try:
         resp = _safe_exec(
             supabase.table("cargo_permissoes").select("*").eq("cargo_id", cargo_id),
             "Erro cargo_permissoes",
         )
         linhas = resp.data if resp else []
-        mapa = {m: {"pode_ler": False, "pode_cadastrar": False, "pode_editar": False}
+        mapa = {m: {"pode_ler": False, "pode_cadastrar": False, "pode_editar": False, "pode_excluir": False}
                 for m in MODULOS_PERMISSAO}
         for linha in linhas:
             mapa[linha["modulo"]] = {
                 "pode_ler": bool(linha.get("pode_ler")),
                 "pode_cadastrar": bool(linha.get("pode_cadastrar")),
                 "pode_editar": bool(linha.get("pode_editar")),
+                "pode_excluir": bool(linha.get("pode_excluir")),
             }
         return mapa
     except Exception as e:
         print(f"❌ Erro ao buscar permissões do cargo: {e}")
-        return {m: {"pode_ler": False, "pode_cadastrar": False, "pode_editar": False}
+        return {m: {"pode_ler": False, "pode_cadastrar": False, "pode_editar": False, "pode_excluir": False}
                 for m in MODULOS_PERMISSAO}
 
 
 def get_permissoes_usuario(usuario: dict) -> dict:
-    """
-    Atalho usado no login: a partir do perfil do usuário (que já traz
-    cargo_id), retorna o mapa de permissões pronto para guardar em
-    page.local_store. Usuário sem cargo (ainda não migrado/atribuído)
-    recebe permissão zerada em tudo — nunca acesso liberado por padrão.
-    """
     cargo_id = usuario.get("cargo_id")
     if not cargo_id:
-        return {m: {"pode_ler": False, "pode_cadastrar": False, "pode_editar": False}
+        return {m: {"pode_ler": False, "pode_cadastrar": False, "pode_editar": False, "pode_excluir": False}
                 for m in MODULOS_PERMISSAO}
     return get_cargo_permissoes(cargo_id)
 
 
+def _cargo_pertence_ao_tenant(cargo_id: int, tenant_id: str) -> bool:
+    try:
+        resp = (
+            supabase_admin.table("cargos")
+            .select("id")
+            .eq("id", cargo_id)
+            .eq("tenant_id", tenant_id)
+            .maybe_single()
+            .execute()
+        )
+        return bool(resp and resp.data)
+    except Exception as e:
+        print(f"❌ Erro ao validar tenant do cargo {cargo_id}: {e}")
+        return False
+
+
 def add_cargo(tenant_id: str, nome: str) -> dict:
-    """Cria um cargo novo (não-padrão) já com todas as permissões zeradas."""
     try:
         if not (nome or "").strip():
             return {"_error": "Nome do cargo é obrigatório."}
@@ -1770,7 +1669,7 @@ def add_cargo(tenant_id: str, nome: str) -> dict:
 
         supabase_admin.table("cargo_permissoes").insert([
             {"cargo_id": cargo["id"], "modulo": m,
-             "pode_ler": False, "pode_cadastrar": False, "pode_editar": False}
+             "pode_ler": False, "pode_cadastrar": False, "pode_editar": False, "pode_excluir": False}
             for m in MODULOS_PERMISSAO
         ]).execute()
 
@@ -1783,7 +1682,12 @@ def add_cargo(tenant_id: str, nome: str) -> dict:
         return {"_error": msg}
 
 
-def update_cargo_nome(cargo_id: int, nome: str) -> dict:
+def update_cargo_nome(cargo_id: int, nome: str, tenant_id: str) -> dict:
+    if not tenant_id:
+        return {"_error": "tenant_id obrigatório."}
+    if not _cargo_pertence_ao_tenant(cargo_id, tenant_id):
+        return {"_error": "Cargo não encontrado neste tenant."}
+
     try:
         if not (nome or "").strip():
             return {"_error": "Nome do cargo é obrigatório."}
@@ -1791,6 +1695,7 @@ def update_cargo_nome(cargo_id: int, nome: str) -> dict:
             supabase_admin.table("cargos")
             .update({"nome": nome.strip()})
             .eq("id", cargo_id)
+            .eq("tenant_id", tenant_id)
             .execute()
         )
         return resp.data[0] if resp.data else {"_error": "Cargo não encontrado."}
@@ -1802,20 +1707,19 @@ def update_cargo_nome(cargo_id: int, nome: str) -> dict:
         return {"_error": msg}
 
 
-def delete_cargo(cargo_id: int) -> dict:
-    """
-    Bloqueia exclusão de cargos padrão (Leitor/Executor/Administrador)
-    e de cargos que ainda têm usuários vinculados — evita usuário
-    órfão sem nenhuma permissão por engano.
-    """
+def delete_cargo(cargo_id: int, tenant_id: str) -> dict:
+    if not tenant_id:
+        return {"_error": "tenant_id obrigatório."}
+
     try:
         cargo = (
             supabase_admin.table("cargos").select("*")
-            .eq("id", cargo_id).maybe_single().execute()
+            .eq("id", cargo_id).eq("tenant_id", tenant_id)
+            .maybe_single().execute()
         )
         cargo = cargo.data if cargo else None
         if not cargo:
-            return {"_error": "Cargo não encontrado."}
+            return {"_error": "Cargo não encontrado neste tenant."}
         if cargo.get("padrao"):
             return {"_error": "Cargos padrão (Leitor, Executor, Administrador) não podem ser excluídos."}
 
@@ -1827,21 +1731,28 @@ def delete_cargo(cargo_id: int) -> dict:
         if total_vinculados:
             return {"_error": f"Existem {total_vinculados} usuário(s) com este cargo. Mude o cargo deles antes de excluir."}
 
-        supabase_admin.table("cargos").delete().eq("id", cargo_id).execute()
+        supabase_admin.table("cargos").delete().eq("id", cargo_id).eq("tenant_id", tenant_id).execute()
         return {"ok": True}
     except Exception as e:
         print(f"❌ Erro ao excluir cargo: {e}")
         return {"_error": str(e)}
 
 
-def set_permissao_cargo(cargo_id: int, modulo: str, pode_ler: bool, pode_cadastrar: bool, pode_editar: bool) -> dict:
-    """Upsert da permissão de um módulo específico dentro de um cargo."""
+def set_permissao_cargo(
+    cargo_id: int, modulo: str,
+    pode_ler: bool, pode_cadastrar: bool, pode_editar: bool, pode_excluir: bool,
+    tenant_id: str,
+) -> dict:
+    if not tenant_id:
+        return {"_error": "tenant_id obrigatório."}
+    if not _cargo_pertence_ao_tenant(cargo_id, tenant_id):
+        return {"_error": "Cargo não encontrado neste tenant."}
+
     try:
         if modulo not in MODULOS_PERMISSAO:
             return {"_error": f"Módulo inválido: {modulo}"}
 
-        # cadastrar/editar sem poder ler não faz sentido — força consistência
-        pode_ler = pode_ler or pode_cadastrar or pode_editar
+        pode_ler = pode_ler or pode_cadastrar or pode_editar or pode_excluir
 
         resp = (
             supabase_admin.table("cargo_permissoes")
@@ -1851,6 +1762,7 @@ def set_permissao_cargo(cargo_id: int, modulo: str, pode_ler: bool, pode_cadastr
                 "pode_ler": pode_ler,
                 "pode_cadastrar": pode_cadastrar,
                 "pode_editar": pode_editar,
+                "pode_excluir": pode_excluir,
             }, on_conflict="cargo_id,modulo")
             .execute()
         )
@@ -1860,15 +1772,21 @@ def set_permissao_cargo(cargo_id: int, modulo: str, pode_ler: bool, pode_cadastr
         return {"_error": str(e)}
 
 
-def update_usuario_cargo(usuario_id: int, cargo_id: int) -> dict:
+def update_usuario_cargo(usuario_id: int, cargo_id: int, tenant_id: str) -> dict:
+    if not tenant_id:
+        return {"_error": "tenant_id obrigatório."}
+    if not _cargo_pertence_ao_tenant(cargo_id, tenant_id):
+        return {"_error": "Cargo não encontrado neste tenant."}
+
     try:
         resp = (
             supabase_admin.table("usuarios")
             .update({"cargo_id": cargo_id})
             .eq("id", usuario_id)
+            .eq("tenant_id", tenant_id)
             .execute()
         )
-        return resp.data[0] if resp.data else {"_error": "Usuário não encontrado."}
+        return resp.data[0] if resp.data else {"_error": "Usuário não encontrado neste tenant."}
     except Exception as e:
         print(f"❌ Erro ao vincular cargo ao usuário: {e}")
         return {"_error": str(e)}

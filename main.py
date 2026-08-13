@@ -4,15 +4,19 @@ import time
 import traceback
 import uuid
 
+import httpx
+
 from pages.login.view import login_view
 from pages import dashboard, clientes, contratos, relatorios, painel
 from pages.admin.view import admin_view
 from database.models import registrar_log
-from database.supabase_client import new_session_client, run_db, supabase_admin
+from database.supabase_client import new_session_client, run_db, supabase_admin, SessaoExpiradaError
 from pages.partes.view import partes_view
 from pages.tipos_partes.view import tipos_partes_view
 from pages.alertas_cadastro.view import alertas_cadastro_view
 from pages.cargos.view import cargos_view
+from pages.logs.view import logs_view
+from pages.erros.view import tela_404, tela_500, tela_conexao, tela_sessao_expirada
 from app.layout import AppLayout
 from utils.permissoes import pode, eh_administrador, algum_modulo_leitura, mensagem_sem_permissao
 
@@ -31,25 +35,17 @@ def main(page: ft.Page):
 
     page.local_store = {}
 
-    # Identificador único desta sessão/conexão específica — usado para
-    # correlacionar, no log, tudo que aconteceu numa mesma sessão do
-    # navegador (conexão, ações, erros, desconexão), mesmo antes do
-    # login (quando ainda não há usuario_id).
     session_id = uuid.uuid4().hex[:12]
     page.local_store["session_id"] = session_id
     inicio_sessao = time.monotonic()
 
     print(f"🔌 CONEXÃO [{session_id}] nova sessão iniciada")
 
-    # =========================================================
-    # FIX MULTI-SESSÃO: cria um client Supabase isolado para
-    # ESTA sessão específica e guarda em page.local_store, que
-    # é único por sessão/conexão. Esse client é passado
-    # explicitamente a cada consulta via run_db() (ver models.py
-    # e as páginas), garantindo que o token de autenticação de
-    # um usuário NUNCA seja usado nas consultas de outro usuário.
-    # =========================================================
-    page.local_store["supabase_client"] = new_session_client()
+    try:
+        page.local_store["supabase_client"] = new_session_client()
+    except Exception as ex:
+        print(f"🔴 CRASH_INIT_SUPABASE [{session_id}]: {ex}")
+        page.local_store["supabase_client"] = None
 
     page.title = "DocsFlow System"
     page.theme_mode = ft.ThemeMode.LIGHT
@@ -65,17 +61,6 @@ def main(page: ft.Page):
     fp_service.register(page)
 
     print("✅ FilePicker Service ativo")
-
-    # =========================================================
-    # DIAGNÓSTICO: desconexão do navegador ("sumiu do nada") e
-    # erros não tratados no lado do cliente. Isso é justamente o
-    # tipo de evento que hoje passa em branco — o usuário vê a
-    # tela travar/sumir e não sobra rastro nenhum pra investigar.
-    # Usa supabase_admin diretamente (não run_db/client de sessão):
-    # se o PROBLEMA é a conexão/sessão, um log que dependesse dela
-    # também poderia falhar — o registro do problema não pode
-    # depender da própria coisa que está com problema.
-    # =========================================================
 
     def _log_sistema(acao: str, detalhes: str):
         tenant_id = page.local_store.get("tenant_id")
@@ -94,8 +79,6 @@ def main(page: ft.Page):
             supabase_admin.table("logs").insert(payload).execute()
         except Exception as e:
             if "PGRST204" in str(e) or "nivel" in str(e):
-                # Migração sql/2026-07_logs_nivel.sql ainda não rodada
-                # no Supabase — grava sem a coluna nova por enquanto.
                 payload.pop("nivel", None)
                 try:
                     supabase_admin.table("logs").insert(payload).execute()
@@ -114,15 +97,19 @@ def main(page: ft.Page):
     def _on_error(e):
         detalhe = getattr(e, "data", None) or str(e)
         _log_sistema("Erro no cliente (frontend)", str(detalhe))
+        try:
+            page.snack_bar = ft.SnackBar(
+                ft.Text("Ocorreu um problema inesperado nesta tela. Se persistir, atualize a página."),
+                bgcolor=ft.Colors.RED_100,
+            )
+            page.snack_bar.open = True
+            page.update()
+        except Exception:
+            pass
 
     page.on_disconnect = _on_disconnect
     page.on_error = _on_error
 
-    # =========================================================
-    # FIX RLS: log_async agora passa tenant_id para registrar_log
-    # e roda via asyncio.to_thread (propaga o contexto da sessão
-    # corretamente e evita threads soltas sem controle).
-    # =========================================================
     def log_async(usuario_id, acao):
         tenant_id = page.local_store.get("tenant_id")
 
@@ -135,18 +122,13 @@ def main(page: ft.Page):
         page.run_task(run)
 
     def get_view(route):
-        """
-        Wrapper de segurança: se a construção de QUALQUER tela lançar
-        uma exceção não tratada (ex: erro inesperado do Flet, dado
-        vindo em formato que a tela não esperava, timeout de rede no
-        meio da montagem), isso ANTES deixava a tela em branco/travada
-        sem nenhum rastro — exatamente o tipo de sintoma relatado como
-        "os contratos sumiram". Agora o erro é logado com o traceback
-        completo (console + banco) e o usuário vê uma tela de erro
-        clara, com botão para tentar de novo, em vez de tela vazia.
-        """
         try:
             return _get_view_interno(route)
+        except SessaoExpiradaError:
+            return tela_sessao_expirada(page)
+        except httpx.TransportError as ex:
+            print(f"🌐 FALHA_CONEXAO [{route}]: {ex}")
+            return tela_conexao(page, route)
         except Exception as ex:
             tb = traceback.format_exc()
             print(f"🔴 CRASH_ROTA [{route}]:\n{tb}")
@@ -154,30 +136,7 @@ def main(page: ft.Page):
                 f"Crash ao renderizar rota {route}",
                 f"{type(ex).__name__}: {ex}\n{tb[-1500:]}",
             )
-            return _tela_erro_generico(route)
-
-    def _tela_erro_generico(route):
-        def _tentar_de_novo(e):
-            page.go(route)
-
-        return ft.Container(
-            expand=True,
-            alignment=ft.alignment.center,
-            content=ft.Column(
-                [
-                    ft.Icon(ft.Icons.ERROR_OUTLINE, size=48, color=ft.Colors.RED_300),
-                    ft.Text("Algo deu errado ao carregar esta tela.", size=16),
-                    ft.Text(
-                        "O problema já foi registrado. Tente novamente — "
-                        "se persistir, avise um administrador.",
-                        size=13, color=ft.Colors.GREY_600,
-                    ),
-                    ft.FilledButton("Tentar novamente", on_click=_tentar_de_novo),
-                ],
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=10,
-            ),
-        )
+            return tela_500(page, route)
 
     def _get_view_interno(route):
 
@@ -188,21 +147,9 @@ def main(page: ft.Page):
             return ft.Container()
 
         if route == "/login":
-            # login não muda entre visitas, esse pode continuar em cache
             if "login" not in views_cache:
                 views_cache["login"] = login_view(page, page.go)
             return views_cache["login"]
-
-        # =========================================================
-        # FIX: as telas abaixo eram guardadas em views_cache e NUNCA
-        # reconstruídas — então dados criados/alterados em outra tela
-        # (ex: um novo contrato) só apareciam aqui na PRIMEIRA vez que
-        # a tela era aberta na sessão; visitas seguintes reexibiam a
-        # mesma instância antiga, com os dados de quando foi criada.
-        # Agora cada navegação cria a tela de novo, sempre com dados
-        # atuais. O custo (reconstruir + buscar dados de novo) é
-        # pequeno, já que essas buscas rodam em paralelo.
-        # =========================================================
 
         if route == "/dashboard":
             if usuario_id:
@@ -211,54 +158,93 @@ def main(page: ft.Page):
 
         if route == "/clientes":
             if not pode(page, "clientes", "ler"):
-                return mensagem_sem_permissao("visualizar")
+                return mensagem_sem_permissao("visualizar", page)
             return clientes.clientes_view(page)
 
         if route == "/contratos":
             if not pode(page, "contratos", "ler"):
-                return mensagem_sem_permissao("visualizar")
+                return mensagem_sem_permissao("visualizar", page)
             return contratos.contratos_view(page)
 
         if route in ["/alertas", "/painel"]:
             if not pode(page, "prazos", "ler"):
-                return mensagem_sem_permissao("visualizar")
+                return mensagem_sem_permissao("visualizar", page)
             return painel.painel_view(page)
 
         if route == "/relatorios":
             if not algum_modulo_leitura(page):
-                return mensagem_sem_permissao("visualizar")
+                return mensagem_sem_permissao("visualizar", page)
             return relatorios.relatorios_view(page)
 
         if route == "/partes":
             if not pode(page, "partes", "ler"):
-                return mensagem_sem_permissao("visualizar")
+                return mensagem_sem_permissao("visualizar", page)
             return partes_view(page)
 
         if route == "/tipos-partes":
             if not pode(page, "categorias", "ler"):
-                return mensagem_sem_permissao("visualizar")
+                return mensagem_sem_permissao("visualizar", page)
             return tipos_partes_view(page)
 
         if route == "/alertas-cadastro":
             if not pode(page, "prazos", "ler"):
-                return mensagem_sem_permissao("visualizar")
+                return mensagem_sem_permissao("visualizar", page)
             return alertas_cadastro_view(page)
 
         if route == "/admin":
             if not eh_administrador(page):
-                return mensagem_sem_permissao("acessar")
+                return mensagem_sem_permissao("acessar", page)
             return admin_view(page)
 
         if route == "/cargos":
             if not eh_administrador(page):
-                return mensagem_sem_permissao("acessar")
+                return mensagem_sem_permissao("acessar", page)
             return cargos_view(page)
 
-        page.go("/dashboard")
-        return ft.Container()
+        if route == "/logs":
+            if not eh_administrador(page):
+                return mensagem_sem_permissao("acessar", page)
+            return logs_view(page)
 
-    layout = AppLayout(page, get_view)
-    page.layout_instance = layout
+        return tela_404(page, route)
+
+    try:
+        layout = AppLayout(page, get_view)
+        page.layout_instance = layout
+    except Exception as ex:
+        tb = traceback.format_exc()
+        print(f"🔴 CRASH_INIT_LAYOUT [{session_id}]:\n{tb}")
+        _log_sistema(
+            "Crash ao inicializar o layout principal",
+            f"{type(ex).__name__}: {ex}\n{tb[-1500:]}",
+        )
+        page.controls.clear()
+        page.add(
+            ft.Container(
+                expand=True,
+                alignment=ft.alignment.center,
+                content=ft.Column(
+                    [
+                        ft.Icon(ft.Icons.ERROR_OUTLINE, size=52, color=ft.Colors.RED_300),
+                        ft.Text(
+                            "Não foi possível iniciar o sistema.",
+                            size=18, weight=ft.FontWeight.BOLD,
+                            text_align=ft.TextAlign.CENTER,
+                        ),
+                        ft.Text(
+                            "Tente recarregar a página. Se o problema persistir, "
+                            "contate o suporte.",
+                            size=13, color=ft.Colors.GREY_600,
+                            text_align=ft.TextAlign.CENTER,
+                        ),
+                    ],
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=10,
+                ),
+            )
+        )
+        page.update()
+        return
 
     def on_route_change(e):
         print("➡️ ROTA:", page.route)
@@ -276,13 +262,20 @@ def main(page: ft.Page):
 
             layout.navigate(page.route)
             page.update()
+
+        except SessaoExpiradaError:
+            pass
+
+        except httpx.TransportError as ex:
+            print(f"🌐 FALHA_CONEXAO_NAVEGACAO [{page.route}]: {ex}")
+            try:
+                page.controls.clear()
+                page.add(tela_conexao(page, page.route))
+                page.update()
+            except Exception:
+                pass
+
         except Exception as ex:
-            # Mesma lógica do wrapper de get_view: navigate() também
-            # pode falhar por motivos fora da tela em si (sidebar,
-            # checagem de permissão, atualização do layout). Sem isso,
-            # a exceção sobe até o loop de eventos do Flet e a sessão
-            # trava/desconecta sem nenhum rastro — exatamente o tipo
-            # de "sumiu do nada" relatado.
             tb = traceback.format_exc()
             print(f"🔴 CRASH_NAVIGATE [{page.route}]:\n{tb}")
             _log_sistema(
@@ -291,7 +284,7 @@ def main(page: ft.Page):
             )
             try:
                 page.controls.clear()
-                page.add(_tela_erro_generico(page.route))
+                page.add(tela_500(page, page.route))
                 page.update()
             except Exception:
                 pass

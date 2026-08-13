@@ -3,18 +3,13 @@ import flet as ft
 from utils.sigla import gerar_sigla
 from database.models import add_cliente, update_cliente
 from database.supabase_client import run_db
+from utils.erros_ui import snack_erro, snack_sucesso
 from utils.log_acao import log_acao
 
 
 # ======================================================
 # HELPERS
 # ======================================================
-
-def _snack(page: ft.Page, msg: str):
-    page.snack_bar = ft.SnackBar(ft.Text(msg))
-    page.snack_bar.open = True
-    page.update()
-
 
 def _fechar(dialog, page):
     dialog.open = False
@@ -38,19 +33,24 @@ def novo_cliente_dialog(page: ft.Page, atualizar_tabela):
 
     tf_documento = ft.TextField(label="Documento (CPF / CNPJ)")
 
+    lbl_erro = ft.Text("", color=ft.Colors.RED_700, size=12)
+
     # -------------------------
     # SALVAR
     # -------------------------
     async def salvar(e):
 
+        lbl_erro.value = ""
+
         if not tf_nome.value or not dd_tipo.value or not tf_documento.value:
-            _snack(page, "Preencha todos os campos obrigatórios.")
+            lbl_erro.value = "Preencha todos os campos obrigatórios."
+            page.update()
             return
 
         sigla_auto = gerar_sigla(tf_nome.value)
 
         try:
-            await run_db(
+            resultado = await run_db(
                 page,
                 add_cliente,
                 {
@@ -63,13 +63,18 @@ def novo_cliente_dialog(page: ft.Page, atualizar_tabela):
             )
 
         except Exception as ex:
-            _snack(page, f"Erro ao salvar cliente: {ex}")
+            snack_erro(page, ex, contexto="salvar o cliente")
+            return
+
+        if not resultado:
+            lbl_erro.value = "Não foi possível salvar o cliente. Verifique os dados e tente novamente."
+            page.update()
             return
 
         dialog.open = False
         atualizar_tabela()
 
-        _snack(page, f"Cliente '{tf_nome.value}' cadastrado com sucesso.")
+        snack_sucesso(page, f"Cliente '{tf_nome.value}' cadastrado com sucesso.")
         log_acao(page, f"Cliente cadastrado: '{tf_nome.value}'")
 
         page.update()
@@ -86,6 +91,7 @@ def novo_cliente_dialog(page: ft.Page, atualizar_tabela):
                 tf_nome,
                 dd_tipo,
                 tf_documento,
+                lbl_erro,
             ],
             spacing=10,
             tight=True,
@@ -144,17 +150,22 @@ def editar_cliente_dialog(
         disabled=True,
     )
 
+    lbl_erro = ft.Text("", color=ft.Colors.RED_700, size=12)
+
     # -------------------------
     # SALVAR
     # -------------------------
     async def salvar(e):
 
+        lbl_erro.value = ""
+
         if not tf_nome.value or not dd_tipo.value or not tf_documento.value:
-            _snack(page, "Preencha todos os campos obrigatórios.")
+            lbl_erro.value = "Preencha todos os campos obrigatórios."
+            page.update()
             return
 
         try:
-            await run_db(
+            resultado = await run_db(
                 page,
                 update_cliente,
                 cliente["id"],
@@ -166,14 +177,19 @@ def editar_cliente_dialog(
             )
 
         except Exception as ex:
-            _snack(page, f"Erro ao atualizar cliente: {ex}")
+            snack_erro(page, ex, contexto="atualizar o cliente")
+            return
+
+        if not resultado:
+            lbl_erro.value = "Não foi possível atualizar o cliente. Tente novamente."
+            page.update()
             return
 
         dialog.open = False
 
         on_save()
 
-        _snack(page, "Cliente atualizado com sucesso.")
+        snack_sucesso(page, "Cliente atualizado com sucesso.")
         log_acao(page, f"Cliente editado: '{tf_nome.value}'", f"cliente_id={cliente.get('id')}")
 
         page.update()
@@ -192,6 +208,7 @@ def editar_cliente_dialog(
                 dd_tipo,
                 tf_documento,
                 tf_sigla,
+                lbl_erro,
             ],
             spacing=10,
             tight=True,

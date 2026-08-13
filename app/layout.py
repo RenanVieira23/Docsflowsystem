@@ -11,58 +11,25 @@ class AppLayout(ft.Column):
         self.app_page = page
         self.get_view = get_view
 
-        # =========================
-        # USER LABEL
-        # =========================
         self.lbl_user = ft.Text("Usuário", size=14)
 
-        # =========================
-        # TENANT LABEL (DINÂMICO)
-        # =========================
         self.tenant_text = ft.Text(
             "DocsFlow",
             size=12,
             color=ft.Colors.BLUE_100,
         )
 
-        # =========================
-        # HEADER
-        # =========================
         self.header = self._build_header()
 
-        # =========================
-        # CONTEÚDO CENTRAL
-        # =========================
         self.content_area = ft.Container(
             expand=True,
             padding=24,
             bgcolor=ft.Colors.GREY_50,
         )
 
-        # =========================
-        # SIDEBAR
-        # =========================
-        # FIX: o sidebar é montado antes do login acontecer (quando
-        # page.local_store ainda está vazio), então as checagens de
-        # permissão abaixo ficariam todas "false" pra sempre e o menu
-        # apareceria vazio até um F5. Por isso o sidebar mora dentro
-        # de um Container cujo .content é RECONSTRUÍDO a cada
-        # navigate() (ver _refresh_sidebar), já com as permissões da
-        # sessão atual.
         self.sidebar = ft.Container(width=220, bgcolor="#0F2A44", padding=20)
         self._refresh_sidebar()
 
-        # =========================
-        # LAYOUT PRINCIPAL
-        # =========================
-        # FIX (item de rodapé do menu não aparecia): sem
-        # vertical_alignment=STRETCH aqui, o Container do sidebar não
-        # tinha altura definida — o espaçador "Container(expand=True)"
-        # usado para empurrar o rodapé (Termos de Uso) para baixo
-        # ficava com altura indefinida, e qualquer item colocado DEPOIS
-        # dele na Column simplesmente não era renderizado. STRETCH faz
-        # o sidebar ocupar a altura inteira da tela, dando ao
-        # espaçador uma altura real para calcular.
         self.controls = [
             ft.Row(
                 [
@@ -133,14 +100,13 @@ class AppLayout(ft.Column):
     # =====================================================
 
     def _refresh_sidebar(self):
-        """Reconstrói o conteúdo do sidebar com as permissões atuais
-        da sessão. Chamado no __init__ e a cada navigate()."""
         self.sidebar.content = self._build_sidebar_content()
 
     def _build_sidebar_content(self):
 
         self.btn_admin = self._menu_btn("⚙️ Administração", "/admin")
         self.btn_cargos = self._menu_btn("🔐 Cargos e Permissões", "/cargos")
+        self.btn_logs = self._menu_btn("📋 Logs de Auditoria", "/logs")
 
         itens_menu = []
 
@@ -168,14 +134,8 @@ class AppLayout(ft.Column):
         if eh_administrador(self.app_page):
             itens_menu.append(self.btn_admin)
             itens_menu.append(self.btn_cargos)
+            itens_menu.append(self.btn_logs)
 
-        # FIX: esta Column agora tem expand=True e scroll ativado. O
-        # expand garante que o Container(expand=True) logo abaixo (o
-        # espaçador que empurra "Termos de Uso" para o rodapé) tenha
-        # uma altura real para calcular. O scroll é uma proteção extra:
-        # se o menu crescer (muitos módulos liberados) e não couber na
-        # tela, ele rola em vez de estourar o layout e esconder o
-        # rodapé de novo.
         return ft.Column(
             [
                 ft.Image(
@@ -190,9 +150,6 @@ class AppLayout(ft.Column):
                     ),
                 ),
 
-                # =========================
-                # TENANT DINÂMICO
-                # =========================
                 self.tenant_text,
 
                 ft.Divider(color=ft.Colors.BLUE_300),
@@ -201,11 +158,6 @@ class AppLayout(ft.Column):
 
                 ft.Container(expand=True),
 
-                # =========================
-                # TERMOS DE USO / PRIVACIDADE (LGPD)
-                # Disponível para qualquer usuário logado, sem
-                # depender de permissão de módulo — item informativo.
-                # =========================
                 ft.Divider(color=ft.Colors.BLUE_300),
                 ft.Container(
                     padding=ft.padding.symmetric(vertical=6, horizontal=4),
@@ -258,14 +210,6 @@ class AppLayout(ft.Column):
     # =====================================================
 
     def _logout(self, e):
-        # FIX: local_store.clear() também apagava "supabase_client" — e
-        # como main() só roda de novo com um F5 completo no navegador
-        # (não a cada logout/login dentro da mesma sessão), o sistema
-        # ficava sem client nenhum guardado. O próximo login então usava
-        # um client "de socorro" descartável a cada chamada (nunca salvo
-        # de volta), e por isso nada mais carregava direito até dar F5
-        # manualmente. Agora recriamos um client novo e limpo aqui,
-        # pronto pro próximo login.
         from database.supabase_client import new_session_client
         from utils.log_acao import log_acao
 
@@ -276,7 +220,7 @@ class AppLayout(ft.Column):
         self.app_page.go("/login")
 
     # =====================================================
-    # ATUALIZAÇÕES DINÂMICAS (ESSENCIAL)
+    # ATUALIZAÇÕES DINÂMICAS
     # =====================================================
 
     def set_user(self, name: str):
@@ -295,27 +239,17 @@ class AppLayout(ft.Column):
 
         self.lbl_user.value = self.app_page.local_store.get("usuario_nome", "Usuário")
 
-        # FIX: o sidebar era montado uma única vez, antes do login (com
-        # page.local_store vazio) — as permissões nunca eram reavaliadas
-        # depois, então o menu ficava vazio até um F5. Agora ele é
-        # reconstruído a cada navegação, já refletindo o cargo/
-        # permissões da sessão atual.
         self._refresh_sidebar()
 
         is_admin = eh_administrador(self.app_page)
 
-        if route in ("/admin", "/cargos") and not is_admin:
+        if route in ("/admin", "/cargos", "/logs") and not is_admin:
             self.app_page.snack_bar = ft.SnackBar(
                 ft.Text("Acesso permitido apenas para administradores.")
             )
             self.app_page.snack_bar.open = True
             route = "/dashboard"
 
-        # FIX: antes, a view de cada rota era guardada aqui e nunca mais
-        # reconstruída na mesma sessão — por isso dados criados em outra
-        # tela (ex: um novo contrato) só apareciam na PRIMEIRA vez que a
-        # tela era visitada. Agora cada navegação chama get_view() de
-        # novo, sempre com dados atuais.
         view = self.get_view(route)
 
         self.content_area.content = view

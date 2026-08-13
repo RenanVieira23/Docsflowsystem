@@ -2,10 +2,10 @@
 utils/permissoes.py
 
 Helper central para checar permissões do usuário logado, por módulo
-e ação (ler / cadastrar / editar). As permissões já vêm resolvidas
-do login e ficam em page.local_store["permissoes"] — este módulo só
-lê essa estrutura, nunca consulta o banco (evita uma query a cada
-clique).
+e ação (ler / cadastrar / editar / excluir). As permissões já vêm
+resolvidas do login e ficam em page.local_store["permissoes"] — este
+módulo só lê essa estrutura, nunca consulta o banco (evita uma query
+a cada clique).
 
 Uso típico dentro de uma página:
 
@@ -13,14 +13,22 @@ Uso típico dentro de uma página:
 
     if pode(page, "clientes", "cadastrar"):
         botoes.append(btn_novo_cliente)
+
+FIX (esta versão): adicionada a ação "excluir" — usada inicialmente
+no soft delete de Clientes (ver pages/clientes/view.py). Módulos que
+ainda não usam essa ação (contratos, partes, etc.) continuam
+funcionando normalmente; a ação só existe onde for explicitamente
+checada.
 """
 
 from __future__ import annotations
 
 import flet as ft
 
+from pages.erros.view import tela_403
+
 MODULOS = ["clientes", "contratos", "categorias", "prazos", "partes"]
-ACOES = ["ler", "cadastrar", "editar"]
+ACOES = ["ler", "cadastrar", "editar", "excluir"]
 
 
 def _is_super(page: ft.Page) -> bool:
@@ -37,7 +45,7 @@ def _is_super(page: ft.Page) -> bool:
 def pode(page: ft.Page, modulo: str, acao: str) -> bool:
     """
     Retorna True se o usuário logado (via seu cargo) pode executar
-    `acao` ("ler"/"cadastrar"/"editar") no `modulo`.
+    `acao` ("ler"/"cadastrar"/"editar"/"excluir") no `modulo`.
 
     Usuário sem cargo definido (ou sessão sem permissões carregadas)
     NUNCA recebe acesso por padrão — falha fechada, não aberta.
@@ -53,7 +61,12 @@ def pode(page: ft.Page, modulo: str, acao: str) -> bool:
 
     permissoes = page.local_store.get("permissoes") or {}
     modulo_perm = permissoes.get(modulo) or {}
-    chave = {"ler": "pode_ler", "cadastrar": "pode_cadastrar", "editar": "pode_editar"}[acao]
+    chave = {
+        "ler": "pode_ler",
+        "cadastrar": "pode_cadastrar",
+        "editar": "pode_editar",
+        "excluir": "pode_excluir",
+    }[acao]
     return bool(modulo_perm.get(chave))
 
 
@@ -61,7 +74,7 @@ def eh_administrador(page: ft.Page) -> bool:
     """
     Acesso à tela de Administração (gerenciar usuários e cargos) é
     separado do sistema de permissões por módulo — é um cargo
-    especial, não um "módulo" com ler/cadastrar/editar.
+    especial, não um "módulo" com ler/cadastrar/editar/excluir.
     """
     if _is_super(page):
         return True
@@ -80,24 +93,15 @@ def algum_modulo_leitura(page: ft.Page) -> bool:
     return any(pode(page, m, "ler") for m in MODULOS)
 
 
-def mensagem_sem_permissao(acao: str = "acessar") -> ft.Container:
-    """Tela padrão de 'acesso negado', reaproveitável em qualquer rota/página."""
-    return ft.Container(
-        expand=True,
-        alignment=ft.alignment.center,
-        content=ft.Column(
-            [
-                ft.Icon(ft.Icons.LOCK_OUTLINE, size=48, color=ft.Colors.GREY_400),
-                ft.Text(
-                    f"Você não tem permissão para {acao} este módulo.",
-                    size=16, color=ft.Colors.GREY_600,
-                ),
-                ft.Text(
-                    "Fale com um administrador do sistema se precisar de acesso.",
-                    size=13, color=ft.Colors.GREY_500,
-                ),
-            ],
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            spacing=8,
-        ),
-    )
+def mensagem_sem_permissao(acao: str = "acessar", page: ft.Page | None = None) -> ft.Container:
+    """
+    Tela padrão de 'acesso negado', reaproveitável em qualquer
+    rota/página. Delega o visual para pages.erros.view.tela_403, que
+    é a mesma família de telas usada para 404/500/sessão expirada.
+
+    `page` é opcional por compatibilidade com chamadas antigas
+    (chamar sem page ainda funciona, só não mostra o botão "Ir para
+    o Dashboard") — mas ao adicionar novas chamadas, prefira sempre
+    passar `page`.
+    """
+    return tela_403(page, acao)

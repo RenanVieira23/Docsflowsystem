@@ -6,13 +6,15 @@ Página unificada de Tipos com 3 seções:
   2. Tipos de Contrato→ tabela tipos_contratos (campo "nome")
   3. Tipos de Prazos  → tabela tipos_prazos    (campo "nome")
 
-FIX (esta versão):
+FIX (versão anterior):
   - Todos os handlers que escrevem no banco (_add_parte, _add_contrato,
     _add_prazo, _salvar de cada linha, _excluir_vinculo, _excluir_nome)
     agora são `async def` e chamam o banco via run_db(self.app_page, ...),
-    garantindo que rodem com o client AUTENTICADO da sessão. Antes,
-    essas chamadas eram síncronas e caíam num client sem token,
-    causando "new row violates row-level security policy".
+    garantindo que rodem com o client AUTENTICADO da sessão.
+
+FIX (esta versão):
+  - Mensagens de erro amigáveis via utils/erros_ui, em vez de expor
+    a exceção crua (`f"Erro: {ex}"`) na tela.
 """
 
 import flet as ft
@@ -38,6 +40,7 @@ from database.models import (
 )
 from database.supabase_client import run_db
 from utils.permissoes import pode
+from utils.erros_ui import snack_erro, snack_sucesso, banner_erro_carregamento
 
 
 # ======================================================
@@ -62,8 +65,12 @@ class TiposPartesView(ft.Column):
         self.tf_contrato = ft.TextField(label="Nova categoria de contrato (ex: Locação...)",    expand=True, dense=True)
         self.tf_prazo    = ft.TextField(label="Nova categoria de prazo (ex: Vencimento...)",    expand=True, dense=True)
 
+        # ── área de erro de carregamento (uma para as 3 seções) ──
+        self.area_erro = ft.Container(visible=False)
+
         # ── layout ──
         self.controls = [
+            self.area_erro,
             self._bloco(
                 "Categorias de Partes",
                 "Tipos de vínculo das partes nos contratos (tabela vínculos)",
@@ -126,6 +133,7 @@ class TiposPartesView(ft.Column):
     # ======================================================
 
     async def _carregar_tudo(self):
+        erro = False
         try:
             # vinculos precisam de tenant_id
             partes    = await run_db(self.app_page, get_vinculos, self.tenant_id)
@@ -134,6 +142,13 @@ class TiposPartesView(ft.Column):
         except Exception as ex:
             print("Erro tipos:", ex)
             partes = contratos = prazos = []
+            erro = True
+
+        self.area_erro.visible = erro
+        if erro:
+            self.area_erro.content = banner_erro_carregamento(
+                "as categorias", on_retry=lambda e: self.app_page.run_task(self._carregar_tudo)
+            )
 
         # Tipos de partes: campo "tipo", update via update_vinculo, delete via delete_vinculo
         self._render_lista_vinculos(partes or [], self.lista_partes)
@@ -198,11 +213,15 @@ class TiposPartesView(ft.Column):
                 if not novo:
                     return
                 try:
-                    await run_db(self.app_page, update_vinculo, i["id"], {"tipo": novo})
+                    resultado = await run_db(self.app_page, update_vinculo, i["id"], {"tipo": novo})
                 except Exception as ex:
-                    self._snack(f"Erro: {ex}"); return
+                    snack_erro(self.app_page, ex, contexto="atualizar a categoria")
+                    return
+                if isinstance(resultado, dict) and resultado.get("_error"):
+                    snack_erro(self.app_page, Exception(resultado["_error"]), contexto="atualizar a categoria")
+                    return
                 self.app_page.run_task(self._carregar_tudo)
-                self._snack("Tipo atualizado.")
+                snack_sucesso(self.app_page, "Categoria atualizada.")
 
             def _cancelar(e, t=tf, orig=_original,
                           be=btn_editar, bs=btn_salvar, bc=btn_cancelar, bx=btn_excluir):
@@ -283,11 +302,15 @@ class TiposPartesView(ft.Column):
                 novo = (t.value or "").strip()
                 if not novo: return
                 try:
-                    await run_db(self.app_page, uf, i["id"], {"nome": novo})
+                    resultado = await run_db(self.app_page, uf, i["id"], {"nome": novo})
                 except Exception as ex:
-                    self._snack(f"Erro: {ex}"); return
+                    snack_erro(self.app_page, ex, contexto="atualizar a categoria")
+                    return
+                if not resultado:
+                    snack_erro(self.app_page, Exception("sem resultado"), contexto="atualizar a categoria")
+                    return
                 self.app_page.run_task(self._carregar_tudo)
-                self._snack("Tipo atualizado.")
+                snack_sucesso(self.app_page, "Categoria atualizada.")
 
             def _cancelar(e, t=tf, orig=_original,
                           be=btn_editar, bs=btn_salvar, bc=btn_cancelar, bx=btn_excluir):
@@ -325,42 +348,56 @@ class TiposPartesView(ft.Column):
     async def _add_parte(self):
         nome = (self.tf_parte.value or "").strip()
         if not nome:
-            self._snack("Digite o nome da categoria."); return
+            snack_erro(self.app_page, Exception("nome vazio"), contexto="adicionar a categoria")
+            return
         if not self.tenant_id:
-            self._snack("tenant_id não disponível. Faça login novamente."); return
+            snack_erro(self.app_page, Exception("sem tenant_id"), contexto="adicionar a categoria (faça login novamente)")
+            return
         try:
             resultado = await run_db(self.app_page, add_vinculo, nome, self.tenant_id)
         except Exception as ex:
-            self._snack(f"Erro: {ex}"); return
+            snack_erro(self.app_page, ex, contexto="adicionar a categoria")
+            return
         if isinstance(resultado, dict) and resultado.get("_error"):
-            self._snack(f"Erro: {resultado['_error']}"); return
+            snack_erro(self.app_page, Exception(resultado["_error"]), contexto="adicionar a categoria")
+            return
         self.tf_parte.value = ""
         self.app_page.run_task(self._carregar_tudo)
-        self._snack(f"'{nome}' adicionado.")
+        snack_sucesso(self.app_page, f"'{nome}' adicionado.")
 
     async def _add_contrato(self):
         nome = (self.tf_contrato.value or "").strip()
         if not nome:
-            self._snack("Digite o nome da categoria."); return
+            snack_erro(self.app_page, Exception("nome vazio"), contexto="adicionar a categoria")
+            return
         try:
-            await run_db(self.app_page, add_tipo_contrato, nome, self.tenant_id)
+            resultado = await run_db(self.app_page, add_tipo_contrato, nome, self.tenant_id)
         except Exception as ex:
-            self._snack(f"Erro: {ex}"); return
+            snack_erro(self.app_page, ex, contexto="adicionar a categoria")
+            return
+        if not resultado:
+            snack_erro(self.app_page, Exception("sem resultado"), contexto="adicionar a categoria")
+            return
         self.tf_contrato.value = ""
         self.app_page.run_task(self._carregar_tudo)
-        self._snack(f"'{nome}' adicionado.")
+        snack_sucesso(self.app_page, f"'{nome}' adicionado.")
 
     async def _add_prazo(self):
         nome = (self.tf_prazo.value or "").strip()
         if not nome:
-            self._snack("Digite o nome da categoria."); return
+            snack_erro(self.app_page, Exception("nome vazio"), contexto="adicionar a categoria")
+            return
         try:
-            await run_db(self.app_page, add_tipo_prazo, nome, self.tenant_id)
+            resultado = await run_db(self.app_page, add_tipo_prazo, nome, self.tenant_id)
         except Exception as ex:
-            self._snack(f"Erro: {ex}"); return
+            snack_erro(self.app_page, ex, contexto="adicionar a categoria")
+            return
+        if not resultado:
+            snack_erro(self.app_page, Exception("sem resultado"), contexto="adicionar a categoria")
+            return
         self.tf_prazo.value = ""
         self.app_page.run_task(self._carregar_tudo)
-        self._snack(f"'{nome}' adicionado.")
+        snack_sucesso(self.app_page, f"'{nome}' adicionado.")
 
     # ======================================================
     # DELETE helpers
@@ -370,7 +407,7 @@ class TiposPartesView(ft.Column):
         try:
             await run_db(self.app_page, delete_vinculo, item["id"])
         except Exception as ex:
-            self._snack(f"Erro: {ex}")
+            snack_erro(self.app_page, ex, contexto="excluir a categoria")
         dlg.open = False
         self.app_page.run_task(self._carregar_tudo)
         self.app_page.update()
@@ -379,18 +416,13 @@ class TiposPartesView(ft.Column):
         try:
             await run_db(self.app_page, delete_func, item["id"])
         except Exception as ex:
-            self._snack(f"Erro: {ex}")
+            snack_erro(self.app_page, ex, contexto="excluir a categoria")
         dlg.open = False
         self.app_page.run_task(self._carregar_tudo)
         self.app_page.update()
 
     def _fechar(self, dlg):
         dlg.open = False
-        self.app_page.update()
-
-    def _snack(self, msg):
-        self.app_page.snack_bar = ft.SnackBar(ft.Text(msg))
-        self.app_page.snack_bar.open = True
         self.app_page.update()
 
 

@@ -14,13 +14,8 @@ from database.supabase_client import run_db
 from utils.dataptbr import data_br_para_db, data_db_para_br, somar_meses
 from utils.calendario_ptbr import calendario_ptbr
 from utils.permissoes import pode
+from utils.erros_ui import snack_erro, snack_sucesso, banner_erro_carregamento
 from pages.contratos.form import ver_contrato_dialog
-
-
-def _snack(page, msg):
-    page.snack_bar = ft.SnackBar(ft.Text(msg))
-    page.snack_bar.open = True
-    page.update()
 
 
 class AlertasCadastroView(ft.Column):
@@ -44,6 +39,7 @@ class AlertasCadastroView(ft.Column):
         self.clientes_map = {}
         self.partes_map = {}
         self.selecionado = None
+        self._erro_carregamento = False
 
         self.loading = ft.ProgressRing(
             visible=False,
@@ -51,6 +47,8 @@ class AlertasCadastroView(ft.Column):
             height=18,
             stroke_width=2
         )
+
+        self.area_erro = ft.Container(visible=False)
 
         self.tf_busca = ft.TextField(
             hint_text="Buscar por contrato, cliente, parte vinculada, cláusula...",
@@ -89,6 +87,8 @@ class AlertasCadastroView(ft.Column):
 
             ft.Divider(),
 
+            self.area_erro,
+
             ft.Row(
                 [self.tf_busca],
                 spacing=8
@@ -110,6 +110,7 @@ class AlertasCadastroView(ft.Column):
 
     async def _carregar(self):
         self.loading.visible = True
+        self._erro_carregamento = False
         self.app_page.update()
 
         try:
@@ -136,6 +137,7 @@ class AlertasCadastroView(ft.Column):
 
             contratos = clientes = []
             partes_map = {}
+            self._erro_carregamento = True
 
         self.contratos = contratos or []
 
@@ -147,6 +149,12 @@ class AlertasCadastroView(ft.Column):
         self.partes_map = partes_map or {}
 
         self.loading.visible = False
+
+        self.area_erro.visible = self._erro_carregamento
+        if self._erro_carregamento:
+            self.area_erro.content = banner_erro_carregamento(
+                "os contratos", on_retry=lambda e: self.app_page.run_task(self._carregar)
+            )
 
         self._filtrar()
 
@@ -320,11 +328,15 @@ class AlertasCadastroView(ft.Column):
 
     async def _build_painel(self, contrato):
 
-        tipos_p = await run_db(
-            self.app_page,
-            get_tipos_prazos_db,
-            self.tenant_id
-        ) or []
+        try:
+            tipos_p = await run_db(
+                self.app_page,
+                get_tipos_prazos_db,
+                self.tenant_id
+            ) or []
+        except Exception as ex:
+            snack_erro(self.app_page, ex, contexto="carregar os tipos de prazo")
+            tipos_p = []
 
         # =============================
         # CAMPOS
@@ -458,11 +470,15 @@ class AlertasCadastroView(ft.Column):
 
             prazos_col.controls.clear()
 
-            prazos = await run_db(
-                self.app_page,
-                get_prazos_por_contrato,
-                contrato["id"]
-            ) or []
+            try:
+                prazos = await run_db(
+                    self.app_page,
+                    get_prazos_por_contrato,
+                    contrato["id"]
+                ) or []
+            except Exception as ex:
+                snack_erro(self.app_page, ex, contexto="carregar os prazos do contrato")
+                prazos = []
 
             if not prazos:
 
@@ -636,7 +652,7 @@ class AlertasCadastroView(ft.Column):
                 _limpar_campos()
 
                 # Mensagem de sucesso
-                _snack(
+                snack_sucesso(
                     self.app_page,
                     "Prazo adicionado!"
                 )
@@ -648,9 +664,7 @@ class AlertasCadastroView(ft.Column):
                     ex
                 )
 
-                lbl_err.value = (
-                    f"Erro ao salvar prazo: {ex}"
-                )
+                snack_erro(self.app_page, ex, contexto="salvar o prazo")
 
             finally:
 
