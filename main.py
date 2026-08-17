@@ -201,7 +201,7 @@ def main(page: ft.Page):
                 return mensagem_sem_permissao("acessar", page)
             return cargos_view(page)
 
-        if route == "/logs":
+        if route == "/auditoria":
             if not eh_administrador(page):
                 return mensagem_sem_permissao("acessar", page)
             return logs_view(page)

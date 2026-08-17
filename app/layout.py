@@ -106,7 +106,7 @@ class AppLayout(ft.Column):
 
         self.btn_admin = self._menu_btn("⚙️ Administração", "/admin")
         self.btn_cargos = self._menu_btn("🔐 Cargos e Permissões", "/cargos")
-        self.btn_logs = self._menu_btn("📋 Logs de Auditoria", "/logs")
+        self.btn_logs = self._menu_btn("📋 Logs de Auditoria", "/auditoria")
 
         itens_menu = []
 

@@ -756,40 +756,34 @@ def registrar_log_erro(tenant_id, usuario_id, contexto: str, erro: str):
 def get_logs(
     tenant_id: str,
     nivel: str | None = None,
-    usuario_id: int | None = None,
     busca: str | None = None,
-    limit: int = 25,
-    offset: int = 0,
-) -> tuple[list, int]:
+    limit: int = 500,
+) -> list:
     """
-    Lista de logs de auditoria do tenant, paginada no banco (não
-    carrega tudo em memória — tabela de logs cresce indefinidamente).
-    Usada por pages/logs/view.py. Retorna (linhas, total_de_registros).
-
-    Filtros opcionais: nivel ("acao"/"erro"/"sistema"), usuario_id,
-    busca (texto contido no campo "acao").
+    Lista de logs de auditoria do tenant, mais recentes primeiro.
+    Traz até `limit` registros de uma vez (paginação é feita em
+    memória na tela, mesmo padrão usado em get_clientes/get_contratos
+    — ver pages/clientes/view.py e pages/contratos/view.py). Filtros
+    opcionais: nivel ("acao"/"erro"/"sistema"), busca (texto contido
+    no campo "acao").
     """
     try:
         q = (
             supabase.table("logs")
-            .select("*", count="exact")
+            .select("*")
             .eq("tenant_id", tenant_id)
         )
         if nivel and nivel != "todos":
             q = q.eq("nivel", nivel)
-        if usuario_id:
-            q = q.eq("usuario_id", usuario_id)
         if busca:
             q = q.ilike("acao", f"%{busca}%")
 
-        q = q.order("data_hora", desc=True).range(offset, offset + limit - 1)
+        q = q.order("data_hora", desc=True).limit(limit)
         resp = q.execute()
-        return resp.data or [], (resp.count or 0)
+        return resp.data or []
     except Exception as e:
         print(f"❌ Erro ao buscar logs: {e}")
-        return [], 0
-
-
+        return []
 # ======================================================
 # ANEXOS
 # ======================================================
