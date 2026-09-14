@@ -348,8 +348,8 @@ def exportar_clientes_pdf(dados: list[dict]) -> tuple[io.BytesIO, str]:
 # 2. ALERTAS / NOTIFICAÇÕES
 # ══════════════════════════════════════════════════════════════════════
 
-_CHAVES_ALT = ["cliente", "contrato", "observacao", "inicio", "vencimento", "dias_antes", "status"]
-_COLS_ALT   = ["Cliente", "Contrato", "Observação", "Início", "Vencimento", "Dias antes", "Status"]
+_CHAVES_ALT = ["indice", "cliente", "contrato", "observacao", "inicio", "vencimento", "dias_antes", "status"]
+_COLS_ALT   = ["Identificador", "Cliente", "Contrato", "Observação", "Início", "Vencimento", "Dias antes", "Status"]
 _DATAS_ALT  = {"inicio", "vencimento"}
 
 
@@ -376,12 +376,12 @@ def exportar_alertas_pdf(dados: list[dict], status: str = "todos") -> tuple[io.B
 # ══════════════════════════════════════════════════════════════════════
 
 _CHAVES_CON = [
-    "cliente", "nome", "indice",
+    "id", "cliente", "nome", "indice",
     "data_inicial", "data_assinatura", "termo_final",
     "tipo_contrato", "valor", "situacao",
 ]
 _COLS_CON = [
-    "Cliente", "Nome do Contrato", "Identificador",
+    "ID", "Cliente", "Nome do Contrato", "Identificador",
     "Data Inicial", "Data Assinatura", "Termo Final",
     "Tipo", "Valor", "Situação",
 ]
@@ -402,7 +402,7 @@ def exportar_contratos_excel(dados: list[dict]) -> tuple[io.BytesIO, str]:
 def exportar_contratos_pdf(dados: list[dict]) -> tuple[io.BytesIO, str]:
     linhas = [_fmt_datas(d, _CHAVES_CON, _DATAS_CON) for d in dados]
     # larguras proporcionais: cliente e nome mais largos
-    col_w = [3.5, 4.0, 2.0, 2.2, 2.2, 2.5, 2.2, 2.0, 1.8]
+    col_w = [1.2, 3.3, 3.8, 1.8, 2.1, 2.1, 2.3, 2.0, 1.8, 1.6]
     buf  = _build_pdf("Relatório de Contratos", _COLS_CON, linhas,
                       "paisagem", col_widths=col_w)
     nome = f"relatorio_contratos_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
@@ -414,11 +414,11 @@ def exportar_contratos_pdf(dados: list[dict]) -> tuple[io.BytesIO, str]:
 # ══════════════════════════════════════════════════════════════════════
 
 _CHAVES_PRA = [
-    "id", "cliente", "contrato", "tipo_contrato", "tipo", "observacao",
+    "id", "indice", "cliente", "contrato", "tipo_contrato", "tipo", "observacao",
     "meses", "data_criacao", "data_vencimento",
 ]
 _COLS_PRA = [
-    "Identificador", "Cliente", "Contrato", "Tipo de Contrato", "Tipo de Prazo", "Observação",
+    "ID", "Identificador", "Cliente", "Contrato", "Tipo de Contrato", "Tipo de Prazo", "Observação",
     "Meses", "Início", "Vencimento",
 ]
 _DATAS_PRA = {"data_criacao", "data_vencimento"}

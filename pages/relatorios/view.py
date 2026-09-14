@@ -181,7 +181,7 @@ def _row_alerta(d: dict) -> ft.DataRow:
         ft.DataCell(ft.Text(d.get("contrato", "") or "")),
 
         # 3 - Identificador
-        ft.DataCell(ft.Text(d.get("Identificador", "") or "")),
+        ft.DataCell(ft.Text(d.get("indice", "") or "")),
 
         # 4 - Observação
         ft.DataCell(ft.Text(d.get("observacao", "") or "")),
@@ -221,7 +221,7 @@ def _row_contrato(d: dict) -> ft.DataRow:
         ft.DataCell(ft.Text(d.get("nome", "") or "")),
 
         # 3 - Identificador
-        ft.DataCell(ft.Text(d.get("Identificador", "") or "")),
+        ft.DataCell(ft.Text(d.get("indice", "") or "")),
 
         # 4 - Data Inicial
         ft.DataCell(
@@ -266,7 +266,7 @@ def _row_prazo(d: dict) -> ft.DataRow:
 
         # 4 - Identificador
         ft.DataCell(
-            ft.Text(d.get("Identificador", "") or "")
+            ft.Text(d.get("indice", "") or "")
         ),
 
         # 5 - Tipo Contrato
@@ -425,7 +425,7 @@ class RelatoriosView(ft.Column):
                 colunas_def=[
                     ("Cliente",    "cliente",    False),
                     ("Contrato",   "contrato",   False),
-                    ("Identificador",          "Identificador",          False),
+                    ("Identificador", "indice",     False),
                     ("Observação", "observacao", False),
                     ("Início",     "inicio",     False),
                     ("Vencimento", "vencimento", False),
@@ -438,7 +438,7 @@ class RelatoriosView(ft.Column):
                 colunas_def=[
                     ("Cliente",         "cliente",         False),
                     ("Nome",            "nome",            False),
-                    ("Identificador",          "Identificador",          False),
+                    ("Identificador",   "indice",          False),
                     ("Data Inicial",    "data_inicial",    False),
                     ("Data Assinatura", "data_assinatura", False),
                     ("Termo Final",     "termo_final",     False),

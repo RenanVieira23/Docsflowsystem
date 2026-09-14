@@ -73,31 +73,42 @@ def get_relatorio_notificacoes(
     Campos retornados: cliente, contrato, observacao, data_vencimento, dias_antes, data_enviada
     """
     try:
-        # Busca notificações do tenant com prazo e contrato aninhados
+        # FIX: a consulta anterior partia de "notificacoes_enviadas" com
+        # INNER JOIN para "prazos" — isso restringe o universo da consulta
+        # a prazos que JÁ têm notificação enviada. Um prazo sem nenhum
+        # envio nunca gera linha em "notificacoes_enviadas", então ele
+        # nunca aparecia no resultado, não importa o filtro de status
+        # abaixo — os "Pendentes" estavam estruturalmente excluídos antes
+        # mesmo de qualquer filtro rodar.
+        #
+        # Agora a consulta parte de "prazos" (o universo completo do
+        # tenant) e traz "notificacoes_enviadas" como relação opcional
+        # (embedded resource do PostgREST — equivalente a um LEFT JOIN):
+        # se não houver notificação, a lista vem vazia e o prazo aparece
+        # como "Pendente". Mesmo padrão já usado corretamente no Painel
+        # de Alertas (get_alertas_por_periodo, em database/models.py).
         q = (
-            supabase.table("notificacoes_enviadas")
+            supabase.table("prazos")
             .select(
-                "dias_antes, data_enviada, tenant_id,"
-                "prazos!inner(observacao, data_vencimento, tenant_id,"
-                "  contratos!inner(id, nome, indice, data_inicial, deleted_at, ativo, tenant_id,"
-                "    clientes!inner(id, nome, tenant_id)"
-                "  )"
-                ")"
+                "id, observacao, data_vencimento, tenant_id,"
+                "contratos!inner(id, nome, indice, data_inicial, deleted_at, tenant_id,"
+                "  clientes!inner(id, nome, tenant_id)"
+                "),"
+                "notificacoes_enviadas(dias_antes, data_enviada)"
             )
             .eq("tenant_id", tenant_id)
         )
-        
+
         resp = _safe(q, "Erro relatório notificações")
         if not resp or not resp.data:
             return []
 
         resultado = []
         for row in resp.data:
-            prazo    = row.get("prazos") or {}
-            contrato = prazo.get("contratos") or {}
+            contrato = row.get("contratos") or {}
             cliente  = contrato.get("clientes") or {}
 
-            # Filtro deleted_at / ativo
+            # Filtro deleted_at
             if contrato.get("deleted_at"):
                 continue
 
@@ -105,8 +116,13 @@ def get_relatorio_notificacoes(
             if cliente_id and cliente.get("id") != cliente_id:
                 continue
 
-            # Filtro status (enviado = tem data_enviada)
-            tem_envio = bool(row.get("data_enviada"))
+            # notificacoes_enviadas vem como LISTA (relação 1-para-N);
+            # vazia = nenhum envio registrado para este prazo = Pendente.
+            notificacoes = row.get("notificacoes_enviadas") or []
+            tem_envio = len(notificacoes) > 0
+            ultima_notif = notificacoes[0] if notificacoes else {}
+
+            # Filtro status
             if status == "enviados" and not tem_envio:
                 continue
             if status == "pendentes" and tem_envio:
@@ -114,14 +130,14 @@ def get_relatorio_notificacoes(
 
             resultado.append({
                 "id":              contrato.get("id", ""),
-                "Identificador":          contrato.get("indice", ""),
+                "indice":          contrato.get("indice", ""),
                 "cliente":         cliente.get("nome", ""),
                 "contrato":        contrato.get("nome", ""),
-                "observacao":      prazo.get("observacao", ""),
+                "observacao":      row.get("observacao", ""),
                 "inicio":          contrato.get("data_inicial", ""),
-                "vencimento":      prazo.get("data_vencimento", ""),
-                "dias_antes":      row.get("dias_antes", ""),
-                "data_enviada":    row.get("data_enviada", ""),
+                "vencimento":      row.get("data_vencimento", ""),
+                "dias_antes":      ultima_notif.get("dias_antes", "") if tem_envio else "-",
+                "data_enviada":    ultima_notif.get("data_enviada", "") if tem_envio else "",
                 "status":          "Enviado" if tem_envio else "Pendente",
             })
 
@@ -170,7 +186,7 @@ def get_relatorio_contratos(
                 "id":             row.get("id", ""),
                 "cliente":        cli.get("nome", ""),
                 "nome":           row.get("nome", ""),
-                "Identificador":         row.get("indice", ""),
+                "indice":         row.get("indice", ""),
                 "data_inicial":   row.get("data_inicial", ""),
                 "data_assinatura":row.get("data_assinatura", ""),
                 "termo_final":    row.get("termo_final", ""),
@@ -258,7 +274,7 @@ def get_relatorio_prazos(
                 "id":              row.get("id", ""),
                 "cliente":         cliente.get("nome", ""),
                 "contrato":        contrato.get("nome", ""),
-                "Identificador":   contrato.get("indice", ""),
+                "indice":          contrato.get("indice", ""),
                 "tipo":            row.get("tipo", ""),
                 "tipo_contrato":   contrato.get("tipo_contrato", ""),
                 "observacao":      row.get("observacao", ""),
