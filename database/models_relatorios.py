@@ -79,14 +79,14 @@ def get_relatorio_notificacoes(
             .select(
                 "dias_antes, data_enviada, tenant_id,"
                 "prazos!inner(observacao, data_vencimento, tenant_id,"
-                "  contratos!inner(nome, data_inicial, deleted_at, ativo, tenant_id,"
+                "  contratos!inner(id, nome, indice, data_inicial, deleted_at, ativo, tenant_id,"
                 "    clientes!inner(id, nome, tenant_id)"
                 "  )"
                 ")"
             )
             .eq("tenant_id", tenant_id)
         )
-
+        
         resp = _safe(q, "Erro relatório notificações")
         if not resp or not resp.data:
             return []
@@ -113,6 +113,8 @@ def get_relatorio_notificacoes(
                 continue
 
             resultado.append({
+                "id":              contrato.get("id", ""),
+                "Identificador":          contrato.get("indice", ""),
                 "cliente":         cliente.get("nome", ""),
                 "contrato":        contrato.get("nome", ""),
                 "observacao":      prazo.get("observacao", ""),
@@ -140,21 +142,16 @@ def get_relatorio_contratos(
     tenant_id: str,
     cliente_id: int | None = None,
 ) -> list[dict]:
-    """
-    Todos os contratos ativos (deleted_at IS NULL) do tenant.
-    Campos: cliente, nome, indice, data_inicial, data_assinatura,
-            termo_final, tipo_contrato, valor, situacao
-    """
     try:
         q = (
             supabase.table("contratos")
             .select(
-                "nome, indice, data_inicial, data_assinatura, termo_final,"
+                "id, nome, indice, data_inicial, data_assinatura, termo_final,"
                 "tipo_contrato, valor, ativo,"
                 "clientes!inner(id, nome)"
             )
             .eq("tenant_id", tenant_id)
-            .is_("deleted_at", "null")    # exclui deletados
+            .is_("deleted_at", "null")
             .order("nome")
         )
 
@@ -170,9 +167,10 @@ def get_relatorio_contratos(
                 continue
 
             resultado.append({
+                "id":             row.get("id", ""),
                 "cliente":        cli.get("nome", ""),
                 "nome":           row.get("nome", ""),
-                "indice":         row.get("indice", ""),
+                "Identificador":         row.get("indice", ""),
                 "data_inicial":   row.get("data_inicial", ""),
                 "data_assinatura":row.get("data_assinatura", ""),
                 "termo_final":    row.get("termo_final", ""),
@@ -187,8 +185,6 @@ def get_relatorio_contratos(
     except Exception as e:
         print(f"❌ Erro relatório contratos: {e}")
         return []
-
-
 # ──────────────────────────────────────────────
 # 4. PRAZOS
 # ──────────────────────────────────────────────
@@ -223,7 +219,7 @@ def get_relatorio_prazos(
             supabase.table("prazos")
             .select(
                 "id, tipo, observacao, meses, data_criacao, data_vencimento,"
-                "contratos!inner(nome, deleted_at, tipo_contrato,"
+                "contratos!inner(id, nome, indice, deleted_at, tipo_contrato,"
                 "  clientes!inner(id, nome)"
                 ")"
             )
@@ -262,6 +258,7 @@ def get_relatorio_prazos(
                 "id":              row.get("id", ""),
                 "cliente":         cliente.get("nome", ""),
                 "contrato":        contrato.get("nome", ""),
+                "Identificador":   contrato.get("indice", ""),
                 "tipo":            row.get("tipo", ""),
                 "tipo_contrato":   contrato.get("tipo_contrato", ""),
                 "observacao":      row.get("observacao", ""),

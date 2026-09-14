@@ -9,6 +9,10 @@ Correções desta versão:
   - SEM url_target em qualquer botão.
   - Diálogo "Desativar" usa page.open()/page.close() com fallback.
   - Handlers do calendário em funções nomeadas (sem lambda+tuple+setattr).
+  - Mensagens de erro amigáveis via utils/erros_ui (snack_erro /
+    banner_erro_carregamento) em vez de expor exceções cruas.
+  - FIX (logs mais detalhados): detalhes de desativar/reativar agora
+    incluem contrato_id e cliente_id, não só o nome do contrato.
 """
 
 import flet as ft
@@ -18,6 +22,7 @@ from utils.calendario_ptbr import calendario_ptbr
 from utils.dataptbr import data_db_para_br, data_br_para_db
 from utils.table_sort import SortState
 from utils.permissoes import pode
+from utils.erros_ui import snack_erro, snack_sucesso, banner_erro_carregamento
 
 from database.models import (
     get_contratos,
@@ -96,6 +101,7 @@ class ContratosView(ft.Column):
         self.clientes_map = {}
         self.partes_map = {}
         self.status_value = "ativos"
+        self._erro_carregamento = False
 
         # Ordenação
         self.sort = SortState(default_col=0)
@@ -110,6 +116,11 @@ class ContratosView(ft.Column):
         # LOADING
         # =========================
         self.loading = ft.ProgressRing(visible=False, width=18, height=18, stroke_width=2)
+
+        # =========================
+        # ÁREA DE ERRO DE CARREGAMENTO
+        # =========================
+        self.area_erro = ft.Container(visible=False)
 
         # =========================
         # BUSCA
@@ -280,7 +291,10 @@ class ContratosView(ft.Column):
             expand=True, padding=8,
             border=ft.border.all(1, ft.Colors.BLACK12),
             border_radius=12, bgcolor=ft.Colors.WHITE,
-            content=ft.Column([self.tabela], expand=True, tight=True, scroll=ft.ScrollMode.AUTO),
+            content=ft.Column(
+                [self.area_erro, self.tabela],
+                expand=True, tight=True, scroll=ft.ScrollMode.AUTO,
+            ),
         )
 
         paginacao = ft.Row(
@@ -370,6 +384,7 @@ class ContratosView(ft.Column):
 
     async def _carregar_dados(self):
         self.loading.visible = True
+        self._erro_carregamento = False
         self.app_page.update()
 
         try:
@@ -379,6 +394,7 @@ class ContratosView(ft.Column):
                 print("❌ tenant_id não encontrado")
                 contratos = []
                 clientes = []
+                partes_map = {}
             else:
                 contratos, clientes, partes_map = await asyncio.gather(
                     run_db(self.app_page, get_contratos, self.tenant_id),
@@ -391,12 +407,18 @@ class ContratosView(ft.Column):
             contratos = []
             clientes = []
             partes_map = {}
+            self._erro_carregamento = True
 
         self.contratos = contratos or []
         self.clientes_map = {c["id"]: c["nome"] for c in (clientes or [])}
         self.partes_map = partes_map or {}
 
         self.loading.visible = False
+
+        self.area_erro.visible = self._erro_carregamento
+        if self._erro_carregamento:
+            self.area_erro.content = banner_erro_carregamento("os contratos", on_retry=self.recarregar)
+
         self.aplicar_filtros()
 
     def recarregar(self, e=None):
@@ -546,7 +568,7 @@ class ContratosView(ft.Column):
         from pages.contratos.form import ver_contrato_dialog
         self.app_page.run_task(ver_contrato_dialog, self.app_page, contrato, self.clientes_map)
 
-    async def _log_async(self, acao, nome):
+    async def _log_async(self, acao, detalhes):
         try:
             usuario = None
             try:
@@ -560,7 +582,8 @@ class ContratosView(ft.Column):
                 except Exception:
                     usuario = None
             if usuario:
-                await run_db(self.app_page, registrar_log, usuario, acao, nome)
+                tenant_id = self.tenant_id or _get_tenant(self.app_page)
+                await run_db(self.app_page, registrar_log, usuario, acao, detalhes, tenant_id, "acao")
         except Exception:
             pass
 
@@ -578,11 +601,23 @@ class ContratosView(ft.Column):
 
     async def _desativar_async(self, contrato, dialog):
         try:
-            await run_db(self.app_page, update_contrato, contrato["id"], {"ativo": False})
-            await self._log_async("Desativou contrato", contrato["nome"])
+            await run_db(self.app_page, update_contrato, contrato["id"], {"ativo": False}, self.tenant_id)
+            # FIX (logs mais detalhados): antes só passava o nome do
+            # contrato como "detalhes"; agora inclui contrato_id e
+            # cliente_id, útil para localizar o registro exato caso
+            # existam contratos com nomes/apelidos parecidos.
+            await self._log_async(
+                "Desativou contrato",
+                f"contrato_id={contrato.get('id')} nome={contrato.get('nome')} "
+                f"cliente_id={contrato.get('cliente_id')} status_anterior=ativo status_novo=inativo",
+            )
         except Exception as ex:
             print("Erro desativar:", ex)
+            _fechar_dialog(self.app_page, dialog)
+            snack_erro(self.app_page, ex, contexto="desativar o contrato")
+            return
         _fechar_dialog(self.app_page, dialog)
+        snack_sucesso(self.app_page, f"Contrato '{contrato.get('nome')}' desativado.")
         self.recarregar()
 
     def desativar(self, contrato, dialog):
@@ -590,10 +625,17 @@ class ContratosView(ft.Column):
 
     async def _reativar_async(self, contrato):
         try:
-            await run_db(self.app_page, update_contrato, contrato["id"], {"ativo": True})
-            await self._log_async("Reativou contrato", contrato["nome"])
+            await run_db(self.app_page, update_contrato, contrato["id"], {"ativo": True}, self.tenant_id)
+            await self._log_async(
+                "Reativou contrato",
+                f"contrato_id={contrato.get('id')} nome={contrato.get('nome')} "
+                f"cliente_id={contrato.get('cliente_id')} status_anterior=inativo status_novo=ativo",
+            )
         except Exception as ex:
             print("Erro reativar:", ex)
+            snack_erro(self.app_page, ex, contexto="reativar o contrato")
+            return
+        snack_sucesso(self.app_page, f"Contrato '{contrato.get('nome')}' reativado.")
         self.recarregar()
 
     def reativar(self, contrato):

@@ -3,14 +3,10 @@ pages/logs/view.py
 ====================
 Tela "Logs de Auditoria" — só para administradores.
 
-Estrutura clonada de pages/clientes/view.py (paginação 100% em
-memória, comprovadamente estável).
-
-FIX (esta versão): busca por texto agora cobre TODOS os campos
-relevantes (ação, detalhes, nível traduzido, data/hora) — mesmo
-padrão de busca ampla usado em pages/contratos/view.py (junta os
-campos num texto único e verifica se o termo buscado está contido
-nele), em vez de filtrar só pelo campo "ação".
+FIX (esta versão): nova coluna "Usuário", trazida já com o nome
+resolvido por get_logs() (join com a tabela usuarios) — antes o log
+só guardava o ID numérico do usuário e não havia como saber, pela
+tela, quem tinha feito cada ação.
 """
 
 import flet as ft
@@ -62,8 +58,8 @@ class LogsView(ft.Column):
         self.dd_nivel.on_change = self.filtrar
 
         self.busca = ft.TextField(
-            hint_text="Buscar por ação, detalhes, data...",
-            width=300,
+            hint_text="Buscar por usuário, ação, detalhes, data...",
+            width=320,
         )
         self.busca.on_change = self.filtrar
 
@@ -84,6 +80,7 @@ class LogsView(ft.Column):
             divider_thickness=0.5,
             columns=[
                 ft.DataColumn(ft.Text("Data/Hora")),
+                ft.DataColumn(ft.Text("Usuário")),
                 ft.DataColumn(ft.Text("Nível")),
                 ft.DataColumn(ft.Text("Ação")),
                 ft.DataColumn(ft.Text("Detalhes")),
@@ -187,6 +184,7 @@ class LogsView(ft.Column):
             def _match(l):
                 nivel_l = l.get("nivel") or "acao"
                 texto = " ".join([
+                    str(l.get("usuario_nome") or ""),
                     str(l.get("acao") or ""),
                     str(l.get("detalhes") or ""),
                     str(l.get("data_hora") or ""),
@@ -220,6 +218,7 @@ class LogsView(ft.Column):
             label_nivel = LABEL_NIVEL.get(nivel, nivel)
 
             data_hora = l.get("data_hora") or ""
+            usuario_nome = l.get("usuario_nome") or "-"
             acao = l.get("acao") or ""
             detalhes = l.get("detalhes") or ""
             if len(detalhes) > 80:
@@ -228,6 +227,7 @@ class LogsView(ft.Column):
             self.tabela.rows.append(
                 ft.DataRow(cells=[
                     ft.DataCell(ft.Text(str(data_hora))),
+                    ft.DataCell(ft.Text(str(usuario_nome), weight=ft.FontWeight.W_500)),
                     ft.DataCell(ft.Text(label_nivel, color=cor, weight=ft.FontWeight.BOLD)),
                     ft.DataCell(ft.Text(str(acao))),
                     ft.DataCell(ft.Text(str(detalhes))),

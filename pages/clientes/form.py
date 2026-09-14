@@ -75,7 +75,14 @@ def novo_cliente_dialog(page: ft.Page, atualizar_tabela):
         atualizar_tabela()
 
         snack_sucesso(page, f"Cliente '{tf_nome.value}' cadastrado com sucesso.")
-        log_acao(page, f"Cliente cadastrado: '{tf_nome.value}'")
+        # FIX (logs mais detalhados): inclui id gerado, tipo,
+        # documento e sigla no log — antes só registrava o nome.
+        log_acao(
+            page,
+            f"Cliente cadastrado: '{tf_nome.value}'",
+            f"cliente_id={resultado.get('id')} tipo={dd_tipo.value} "
+            f"documento={tf_documento.value} sigla={sigla_auto}",
+        )
 
         page.update()
 
@@ -164,6 +171,18 @@ def editar_cliente_dialog(
             page.update()
             return
 
+        # FIX (logs mais detalhados): captura o que MUDOU, comparando
+        # os valores originais do cliente com os novos valores dos
+        # campos, antes de salvar — para o log dizer exatamente o que
+        # foi alterado, não só "cliente editado".
+        mudancas = []
+        if (cliente.get("nome") or "") != tf_nome.value:
+            mudancas.append(f"nome: '{cliente.get('nome') or ''}' -> '{tf_nome.value}'")
+        if (cliente.get("tipo") or "") != dd_tipo.value:
+            mudancas.append(f"tipo: '{cliente.get('tipo') or ''}' -> '{dd_tipo.value}'")
+        if (cliente.get("documento") or "") != tf_documento.value:
+            mudancas.append(f"documento: '{cliente.get('documento') or ''}' -> '{tf_documento.value}'")
+
         try:
             resultado = await run_db(
                 page,
@@ -190,7 +209,12 @@ def editar_cliente_dialog(
         on_save()
 
         snack_sucesso(page, "Cliente atualizado com sucesso.")
-        log_acao(page, f"Cliente editado: '{tf_nome.value}'", f"cliente_id={cliente.get('id')}")
+        detalhe_log = (
+            f"cliente_id={cliente.get('id')} — " + "; ".join(mudancas)
+            if mudancas else
+            f"cliente_id={cliente.get('id')} (nenhum campo alterado)"
+        )
+        log_acao(page, f"Cliente editado: '{tf_nome.value}'", detalhe_log)
 
         page.update()
 

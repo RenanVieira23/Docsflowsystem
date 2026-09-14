@@ -156,61 +156,149 @@ class _TabelaPaginada(ft.Column):
 # ══════════════════════════════════════════════════════════════════════
 # ROW BUILDERS
 # ══════════════════════════════════════════════════════════════════════
-
 def _row_cliente(d: dict) -> ft.DataRow:
     return ft.DataRow(cells=[
         ft.DataCell(ft.Text(str(d.get("id", "")))),
-        ft.DataCell(ft.Text(d.get("nome",      "") or "")),
-        ft.DataCell(ft.Text(d.get("tipo",      "") or "")),
+        ft.DataCell(ft.Text(d.get("nome", "") or "")),
+        ft.DataCell(ft.Text(d.get("tipo", "") or "")),
         ft.DataCell(ft.Text(d.get("documento", "") or "")),
-        ft.DataCell(ft.Text(d.get("sigla",     "") or "")),
+        ft.DataCell(ft.Text(d.get("sigla", "") or "")),
     ])
 
 
 def _row_alerta(d: dict) -> ft.DataRow:
-    cor = ft.Colors.GREEN_700 if d.get("status") == "Enviado" else ft.Colors.RED_700
+    cor = (
+        ft.Colors.GREEN_700
+        if d.get("status") == "Enviado"
+        else ft.Colors.RED_700
+    )
+
     return ft.DataRow(cells=[
-        ft.DataCell(ft.Text(d.get("cliente",     "") or "")),
-        ft.DataCell(ft.Text(d.get("contrato",    "") or "")),
-        ft.DataCell(ft.Text(d.get("observacao",  "") or "")),
-        ft.DataCell(ft.Text(data_db_para_br(d.get("inicio",      "")))),
-        ft.DataCell(ft.Text(data_db_para_br(d.get("vencimento",  "")))),
-        ft.DataCell(ft.Text(str(d.get("dias_antes", "")))),
-        ft.DataCell(ft.Text(
-            d.get("status", "") or "",
-            color=cor,
-            weight=ft.FontWeight.BOLD,
-        )),
+        # 1 - Cliente
+        ft.DataCell(ft.Text(d.get("cliente", "") or "")),
+
+        # 2 - Contrato
+        ft.DataCell(ft.Text(d.get("contrato", "") or "")),
+
+        # 3 - Identificador
+        ft.DataCell(ft.Text(d.get("Identificador", "") or "")),
+
+        # 4 - Observação
+        ft.DataCell(ft.Text(d.get("observacao", "") or "")),
+
+        # 5 - Início
+        ft.DataCell(
+            ft.Text(data_db_para_br(d.get("inicio", "")))
+        ),
+
+        # 6 - Vencimento
+        ft.DataCell(
+            ft.Text(data_db_para_br(d.get("vencimento", "")))
+        ),
+
+        # 7 - Dias antes
+        ft.DataCell(
+            ft.Text(str(d.get("dias_antes", "")))
+        ),
+
+        # 8 - Status
+        ft.DataCell(
+            ft.Text(
+                d.get("status", "") or "",
+                color=cor,
+                weight=ft.FontWeight.BOLD,
+            )
+        ),
     ])
 
 
 def _row_contrato(d: dict) -> ft.DataRow:
     return ft.DataRow(cells=[
-        ft.DataCell(ft.Text(d.get("cliente",         "") or "")),
-        ft.DataCell(ft.Text(d.get("nome",            "") or "")),
-        ft.DataCell(ft.Text(d.get("indice",          "") or "")),
-        ft.DataCell(ft.Text(data_db_para_br(d.get("data_inicial",    "")))),
-        ft.DataCell(ft.Text(data_db_para_br(d.get("data_assinatura", "")))),
-        ft.DataCell(ft.Text(d.get("termo_final",     "") or "")),
-        ft.DataCell(ft.Text(d.get("tipo_contrato",   "") or "")),
-        ft.DataCell(ft.Text(d.get("valor",           "") or "")),
-        ft.DataCell(ft.Text(d.get("situacao",        "") or "")),
+        # 1 - Cliente
+        ft.DataCell(ft.Text(d.get("cliente", "") or "")),
+
+        # 2 - Nome
+        ft.DataCell(ft.Text(d.get("nome", "") or "")),
+
+        # 3 - Identificador
+        ft.DataCell(ft.Text(d.get("Identificador", "") or "")),
+
+        # 4 - Data Inicial
+        ft.DataCell(
+            ft.Text(data_db_para_br(d.get("data_inicial", "")))
+        ),
+
+        # 5 - Data Assinatura
+        ft.DataCell(
+            ft.Text(data_db_para_br(d.get("data_assinatura", "")))
+        ),
+
+        # 6 - Termo Final
+        ft.DataCell(ft.Text(d.get("termo_final", "") or "")),
+
+        # 7 - Tipo
+        ft.DataCell(ft.Text(d.get("tipo_contrato", "") or "")),
+
+        # 8 - Valor
+        ft.DataCell(ft.Text(d.get("valor", "") or "")),
+
+        # 9 - Situação
+        ft.DataCell(ft.Text(d.get("situacao", "") or "")),
     ])
 
 
 def _row_prazo(d: dict) -> ft.DataRow:
     return ft.DataRow(cells=[
-        ft.DataCell(ft.Text(str(d.get("id",        "") or ""))),
-        ft.DataCell(ft.Text(d.get("cliente",       "") or "")),
-        ft.DataCell(ft.Text(d.get("contrato",      "") or "")),
-        ft.DataCell(ft.Text(d.get("tipo_contrato", "") or "")),
-        ft.DataCell(ft.Text(d.get("tipo",          "") or "")),
-        ft.DataCell(ft.Text(d.get("observacao",    "") or "")),
-        ft.DataCell(ft.Text(str(d.get("meses",     "")))),
-        ft.DataCell(ft.Text(data_db_para_br(d.get("data_criacao",    "")))),
-        ft.DataCell(ft.Text(data_db_para_br(d.get("data_vencimento", "")))),
-    ])
+        # 1 - ID
+        ft.DataCell(
+            ft.Text(str(d.get("id", "") or ""))
+        ),
 
+        # 2 - Cliente
+        ft.DataCell(
+            ft.Text(d.get("cliente", "") or "")
+        ),
+
+        # 3 - Contrato
+        ft.DataCell(
+            ft.Text(d.get("contrato", "") or "")
+        ),
+
+        # 4 - Identificador
+        ft.DataCell(
+            ft.Text(d.get("Identificador", "") or "")
+        ),
+
+        # 5 - Tipo Contrato
+        ft.DataCell(
+            ft.Text(d.get("tipo_contrato", "") or "")
+        ),
+
+        # 6 - Tipo Prazo
+        ft.DataCell(
+            ft.Text(d.get("tipo", "") or "")
+        ),
+
+        # 7 - Observação
+        ft.DataCell(
+            ft.Text(d.get("observacao", "") or "")
+        ),
+
+        # 8 - Meses
+        ft.DataCell(
+            ft.Text(str(d.get("meses", "")))
+        ),
+
+        # 9 - Início
+        ft.DataCell(
+            ft.Text(data_db_para_br(d.get("data_criacao", "")))
+        ),
+
+        # 10 - Vencimento
+        ft.DataCell(
+            ft.Text(data_db_para_br(d.get("data_vencimento", "")))
+        ),
+    ])
 
 # ══════════════════════════════════════════════════════════════════════
 # VIEW PRINCIPAL
@@ -337,6 +425,7 @@ class RelatoriosView(ft.Column):
                 colunas_def=[
                     ("Cliente",    "cliente",    False),
                     ("Contrato",   "contrato",   False),
+                    ("Identificador",          "Identificador",          False),
                     ("Observação", "observacao", False),
                     ("Início",     "inicio",     False),
                     ("Vencimento", "vencimento", False),
@@ -349,7 +438,7 @@ class RelatoriosView(ft.Column):
                 colunas_def=[
                     ("Cliente",         "cliente",         False),
                     ("Nome",            "nome",            False),
-                    ("Índice",          "indice",          False),
+                    ("Identificador",          "Identificador",          False),
                     ("Data Inicial",    "data_inicial",    False),
                     ("Data Assinatura", "data_assinatura", False),
                     ("Termo Final",     "termo_final",     False),
@@ -364,6 +453,7 @@ class RelatoriosView(ft.Column):
                     ("ID", "id",              True),
                     ("Cliente",       "cliente",         False),
                     ("Contrato",      "contrato",        False),
+                    ("Identificador",          "indice",          False),
                     ("Tipo Contrato", "tipo_contrato",   False),
                     ("Tipo Prazo",    "tipo",            False),
                     ("Observação",    "observacao",      False),

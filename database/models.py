@@ -757,10 +757,19 @@ def get_logs(
     tenant_id: str,
     nivel: str | None = None,
     busca: str | None = None,
-    limit: int = 500,
+    limit: int = 1000,
 ) -> list:
     """
-    Lista de logs de auditoria do tenant, mais recentes primeiro.
+    Lista de logs de auditoria do tenant, mais recentes primeiro, já
+    com o NOME do usuário responsável.
+
+    FIX: não existe foreign key configurada entre logs.usuario_id e
+    usuarios.id no banco (join direto via select("*, usuarios(...)")
+    falha com PGRST200 "Could not find a relationship"). Em vez de
+    depender dessa constraint, busca os usuários do tenant à parte e
+    cruza os nomes em Python — mais uma consulta, mas não depende de
+    nenhuma migração de schema.
+
     Traz até `limit` registros de uma vez (paginação é feita em
     memória na tela, mesmo padrão usado em get_clientes/get_contratos
     — ver pages/clientes/view.py e pages/contratos/view.py). Filtros
@@ -780,7 +789,27 @@ def get_logs(
 
         q = q.order("data_hora", desc=True).limit(limit)
         resp = q.execute()
-        return resp.data or []
+        linhas = resp.data or []
+
+        # Cruza usuario_id -> nome sem depender de foreign key.
+        ids_usuarios = {l["usuario_id"] for l in linhas if l.get("usuario_id")}
+        nomes_por_id: dict = {}
+        if ids_usuarios:
+            try:
+                resp_usuarios = (
+                    supabase.table("usuarios")
+                    .select("id, usuario")
+                    .in_("id", list(ids_usuarios))
+                    .execute()
+                )
+                nomes_por_id = {u["id"]: u.get("usuario") for u in (resp_usuarios.data or [])}
+            except Exception as e:
+                print(f"⚠️ Erro ao buscar nomes de usuários para os logs: {e}")
+
+        for l in linhas:
+            l["usuario_nome"] = nomes_por_id.get(l.get("usuario_id"))
+
+        return linhas
     except Exception as e:
         print(f"❌ Erro ao buscar logs: {e}")
         return []

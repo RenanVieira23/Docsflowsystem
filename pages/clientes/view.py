@@ -392,8 +392,16 @@ class ClientesView(ft.Column):
             return
 
         snack_sucesso(self.app_page, f"Cliente '{cliente.get('nome')}' excluído.")
-        log_acao(self.app_page, f"Cliente excluído (soft delete): '{cliente.get('nome')}'",
-                 f"cliente_id={cliente.get('id')}")
+        # FIX (logs mais detalhados): inclui id, documento e sigla no
+        # detalhe do log, não só o nome — facilita localizar o
+        # registro exato depois, caso existam clientes com nomes
+        # parecidos.
+        log_acao(
+            self.app_page,
+            f"Cliente excluído (soft delete): '{cliente.get('nome')}'",
+            f"cliente_id={cliente.get('id')} documento={cliente.get('documento') or '-'} "
+            f"sigla={cliente.get('sigla') or '-'} status_anterior=ativo status_novo=inativo",
+        )
         self.recarregar()
 
     def reativar(self, cliente):
@@ -411,8 +419,12 @@ class ClientesView(ft.Column):
             return
 
         snack_sucesso(self.app_page, f"Cliente '{cliente.get('nome')}' reativado.")
-        log_acao(self.app_page, f"Cliente reativado: '{cliente.get('nome')}'",
-                 f"cliente_id={cliente.get('id')}")
+        log_acao(
+            self.app_page,
+            f"Cliente reativado: '{cliente.get('nome')}'",
+            f"cliente_id={cliente.get('id')} documento={cliente.get('documento') or '-'} "
+            f"sigla={cliente.get('sigla') or '-'} status_anterior=inativo status_novo=ativo",
+        )
         self.recarregar()
 
 
